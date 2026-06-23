@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  pipeline:
+    build: .
+    # Use host network and IPC for smooth video and GUI performance on Linux
+    network_mode: host
+    ipc: host
+    volumes:
+      - ./src:/app/src
+      - ./data:/app/data
+      - ./output:/app/output
+      # Pass the Ubuntu X11 GUI socket into the container
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    devices:
+      # Expose the built-in laptop camera
+      - /dev/video0:/dev/video0
+    environment:
+      # Pass the display variable so OpenCV knows where to draw the window
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
