@@ -97,6 +97,8 @@ model.fit(
     callbacks=[learning_rate_reduction],
 )
 
+model.save("/app/output/asl_model.keras")
+
 print("Converting to Quantized TFLite...")
 converter = tf.lite.TFLiteConverter.from_keras_model(model)
 converter.optimizations = [tf.lite.Optimize.DEFAULT]

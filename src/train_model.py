@@ -20,6 +20,12 @@ print("Loading and preparing data...")
 train_df = pd.read_csv("/app/data/sign_mnist_train.csv").fillna(0)
 valid_df = pd.read_csv("/app/data/sign_mnist_valid.csv").fillna(0)
 
+custom_path = "/app/data/custom_train.csv"
+if os.path.exists(custom_path):
+    custom_df = pd.read_csv(custom_path).fillna(0)
+    print(f"Found {len(custom_df)} custom webcam samples in {custom_path}, merging into training data...")
+    train_df = pd.concat([train_df, custom_df], ignore_index=True)
+
 y_train = train_df["label"]
 y_valid = valid_df["label"]
 del train_df["label"]
@@ -47,7 +53,7 @@ if os.path.exists(keras_model_path):
         optimizer=Adam(learning_rate=0.0001),
         metrics=["accuracy"],
     )
-    epochs = 10
+    epochs = 20
 else:
     print("No existing model found. Building from scratch...")
     model = Sequential(
@@ -81,12 +87,12 @@ else:
 # Aggressive webcam augmentation
 datagen = ImageDataGenerator(
     rescale=1.0 / 255,
-    rotation_range=20,
-    zoom_range=0.2,
+    rotation_range=35,
+    zoom_range=0.3,
     width_shift_range=0.2,
     height_shift_range=0.2,
-    brightness_range=[0.5, 1.5],
-    shear_range=0.15,
+    brightness_range=[0.4, 1.6],
+    shear_range=0.25,
     horizontal_flip=True,
     fill_mode="nearest",
 )
