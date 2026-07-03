@@ -1,9 +1,3 @@
-Here is a complete `README.md` file for your project. You can copy this and save it as `README.md` in the root of your `esp32-sense-pipeline` folder.
-
-It covers the complete workflow, project structure, and all the Docker commands you will need.
-
----
-
 # ESP32-S3 Sense: ASL TinyML Pipeline
 
 This project is an automated Docker pipeline to train, fine-tune, and convert a custom American Sign Language (ASL) recognition model for the **Seeed Studio XIAO ESP32S3 Sense**.
@@ -12,29 +6,31 @@ It runs natively on Ubuntu Linux, leveraging your built-in webcam and X11 displa
 
 ## 📁 Project Structure
 
-Ensure your project directory looks exactly like this before running any commands:
-
 ```text
-esp32-sense-pipeline/
-├── docker-compose.yml       # Docker environment configuration
-├── Dockerfile               # OS and dependency build instructions
+asl_training_model/
+├── docker-compose.yml        # Docker environment configuration
+├── Dockerfile                # OS and dependency build instructions
 ├── src/
-│   ├── train_model.py       # Trains or fine-tunes the .keras model
-│   ├── convert_model.py     # Converts .keras -> .tflite -> model.h
-│   └── test_model.py        # Live webcam OpenCV testing
-├── data/                    # Put your training data here!
-│   ├── sign_mnist_train.csv
-│   └── sign_mnist_valid.csv
-└── output/                  # Generated models appear here
-    ├── asl_model.keras      # Re-trainable Keras model
-    ├── asl_model.tflite     # Compiled microcontroller model
-    └── model.h              # C++ array for the ESP32
-
+│   ├── train_model.py        # Trains/fine-tunes the .keras model
+│   ├── convert_model.py      # Converts .keras -> full int8 .tflite -> model.h
+│   ├── test_model.py         # Live webcam / static-image OpenCV testing
+│   ├── capture_data.py       # Collect labeled real-hand samples from your webcam
+│   ├── capture_backgrounds.py# Collect background-only photos (no hand) for augmentation
+│   └── augment_backgrounds.py# Composite real-hand samples onto varied backgrounds
+├── data/
+│   ├── sign_mnist_train.csv  # Base Sign Language MNIST training set
+│   ├── sign_mnist_valid.csv  # Base validation set
+│   ├── custom_train.csv      # (generated) your real-hand samples from capture_data.py
+│   ├── backgrounds/          # (generated) background-only photos from capture_backgrounds.py
+│   └── bg_augmented_train.csv# (generated) hand samples composited onto those backgrounds
+└── output/                    # Generated models and debug artifacts appear here
+    ├── asl_model.keras        # Re-trainable Keras model
+    ├── asl_model.tflite       # Full int8 quantized microcontroller model
+    ├── model.h                # C++ array for the ESP32
+    └── debug_frames/          # (generated) frames saved with 's' during webcam testing
 ```
 
 ## 🚀 The Machine Learning Workflow
-
-This pipeline is split into three distinct steps. You run these commands from your Ubuntu terminal inside the `esp32-sense-pipeline` directory.
 
 ### Step 0: Grant Display Permissions (For Webcam Testing)
 
@@ -42,42 +38,77 @@ Because Docker is an isolated container, you must grant it permission to draw a 
 
 ```bash
 xhost +local:docker
-
 ```
 
 ### Step 1: Train (or Fine-Tune) the Model
 
-This script reads your data, applies heavy visual augmentations (rotation, zoom, brightness shifts) to simulate webcam conditions, and trains the neural network.
+This script reads `sign_mnist_train.csv`/`sign_mnist_valid.csv`, automatically merges in `custom_train.csv` and `bg_augmented_train.csv` if present (see Steps 1a/1b below), applies heavy visual augmentation (rotation, zoom, shear, brightness shifts) to simulate webcam conditions, and trains the CNN.
 
-* **First run:** It builds a brand new model and trains it for 20 epochs.
-* **Subsequent runs:** It detects `asl_model.keras` in the `output/` folder, loads it, drops the learning rate, and fine-tunes it for 10 epochs.
+* **No `asl_model.keras` in `output/`:** builds a brand-new model from scratch and trains for 20 epochs.
+* **`asl_model.keras` already exists:** loads it and fine-tunes at a much lower learning rate. Delete `output/asl_model.keras` first if you want a genuine from-scratch run instead of fine-tuning on top of an existing checkpoint.
 
 ```bash
 docker compose run --rm pipeline python src/train_model.py
-
 ```
 
-### Step 2: Convert to C++ (model.h)
+#### Step 1a: Collect Your Own Real-Hand Samples (recommended)
 
-Once you are happy with a training run, compile the model down to a highly compressed 8-bit quantized TensorFlow Lite model, and generate the raw C++ byte array.
+The base dataset is a narrow, studio-photographed dataset — it won't fully generalize to your specific webcam/lighting/hand. Collect your own labeled samples:
+
+```bash
+docker compose run --rm pipeline python src/capture_data.py
+```
+
+Two windows open: your live feed (with a guide box) and a preview of exactly what gets saved (same crop pipeline used at inference). Press the letter key matching the sign you're showing (A-I, K-Y — no J/Z, they require motion) to save a sample; press `q` to quit. Aim for ~15-20 samples per letter, varying angle/distance slightly each time. Samples accumulate in `data/custom_train.csv` across runs.
+
+#### Step 1b: Make the Model Robust to Messy Backgrounds (optional)
+
+If the model struggles whenever the background isn't plain (cluttered rooms, wood furniture, skin-toned objects confusing the hand crop), bake that robustness into the model itself rather than relying on perfect on-device segmentation (which isn't realistic on an ESP32S3's compute budget):
+
+1. Capture some background-only photos (no hand in frame) of the messy environments you've seen problems in:
+
+   ```bash
+   docker compose run --rm pipeline python src/capture_backgrounds.py
+   ```
+
+   Press `s` to save a frame, `q` to quit. Move the camera around for variety. These go to `data/backgrounds/`.
+
+2. Composite your `custom_train.csv` hand samples onto those backgrounds:
+
+   ```bash
+   docker compose run --rm pipeline python src/augment_backgrounds.py
+   ```
+
+   This segments the hand out of each sample (Otsu threshold) and pastes it onto random crops of your background photos, writing several variants per sample to `data/bg_augmented_train.csv`. Run with `--preview` first to sanity-check a few composites (written to `output/bg_preview/`) before committing to the full batch.
+
+Then retrain (Step 1) — `train_model.py` automatically picks up both `custom_train.csv` and `bg_augmented_train.csv` if they exist.
+
+### Step 2: Convert to TFLite + C++ (model.h)
+
+Converts the trained Keras model to a **full int8 quantized** TFLite model (both weights and activations quantized, using a representative sample of the training data for calibration) — smaller and faster on the ESP32S3 than weights-only quantization, while keeping float32 input/output so `test_model.py` and the Arduino-side wrapper don't need to change.
 
 ```bash
 docker compose run --rm pipeline python src/convert_model.py
-
 ```
 
-*Note: This will generate `model.h` in your `output/` folder.*
+*This generates `asl_model.tflite` and `model.h` in `output/`.*
 
-### Step 3: Test with Live Webcam
-
-This script connects to your laptop's `/dev/video0` camera, crops the image, converts it to 28x28 grayscale (exactly what the ESP32 does), and runs live inference.
+### Step 3: Test with Live Webcam or Static Images
 
 ```bash
+# Live webcam
 docker compose run --rm pipeline python src/test_model.py webcam --keras
 
+# Static images (data/a.png, data/b.png)
+docker compose run --rm pipeline python src/test_model.py --keras
+
+# Test the converted .tflite instead of the .keras model
+docker compose run --rm pipeline python src/test_model.py webcam
 ```
 
-*(Press `q` on your keyboard while the window is focused to quit the camera).*
+`preprocess_image` auto-crops to the hand (skin-tone detection in YCrCb, then pads — not stretches — to a square) before resizing to 28x28, so the model gets a tightly-cropped input similar to the training data regardless of how much background the raw webcam frame captured.
+
+In webcam mode, two windows appear: the live feed, and **"Model Input (28x28 preprocessed)"** showing exactly what the model sees — useful for sanity-checking the crop. Press `s` at any time to save the current raw ROI + model input to `output/debug_frames/` for later inspection; press `q` to quit.
 
 ---
 
@@ -101,10 +132,11 @@ Eloquent::TinyML::TfLite<784, 24, 120 * 1024> ml;
 void setup() {
     ml.begin(_app_output_asl_model_tflite);
 }
-
 ```
 
-## 🧠 Pro-Tip: Fixing "Domain Shift"
+## 🧠 Notes on Domain Shift
 
-If the model works on the CSV data but struggles on your webcam:
-Take 20-50 pictures of your own hand doing signs in front of your actual webcam. Convert them to 28x28 grayscale images, add them to a folder in `data/`, and update `train_model.py` to include them. Fine-tuning the model on your actual room background will drastically improve the ESP32's accuracy!
+If the model works on the CSV data but struggles on your webcam, that's domain shift — the model has only ever seen the base dataset's studio-style photos. Steps 1a/1b above exist specifically to close that gap:
+
+* **Wrong predictions everywhere, even on a plain background:** collect more real samples per letter via `capture_data.py`, focusing on whichever letters are misclassified.
+* **Works on plain backgrounds but fails on cluttered/skin-toned ones:** run the background-augmentation workflow (Step 1b) so the model learns to ignore background clutter rather than relying on perfect segmentation.
