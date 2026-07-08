@@ -1,0 +1,137 @@
+# Deploying to the ESP32-S3 Sense
+
+This folder contains the on-device inference code for the **Seeed Studio
+XIAO ESP32S3 Sense**. It captures grayscale frames from the onboard camera,
+runs them through the trained `model.h` (int8-quantized TFLite model, float32
+in/out), and logs each prediction over Serial as:
+
+```text
+[12345 ms] letter=A confidence=97.32%
+```
+
+## Folder contents
+
+```text
+deploy/
+├── sync_model.sh              # Copies output/model.h into the sketch folder
+└── esp32/
+    └── ASL_Detector/
+        ├── ASL_Detector.ino   # Camera capture + inference + Serial logging
+        ├── camera_pins.h      # XIAO ESP32S3 Sense camera pin mapping
+        └── model.h            # Converted model (kept in sync via sync_model.sh)
+```
+
+## Arduino IDE setup, start to finish
+
+### 1. Install the Arduino IDE
+
+Download and install Arduino IDE 2.x from https://www.arduino.cc/en/software
+for your OS, then launch it.
+
+### 2. Add the ESP32 board package
+
+1. Open **File > Preferences**.
+2. In "Additional boards manager URLs", add:
+   ```text
+   https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+   ```
+3. Open **Tools > Board > Boards Manager**, search for **esp32** (by
+   Espressif Systems), and install it.
+
+### 3. Select and configure the board
+
+1. Plug the XIAO ESP32S3 Sense into your computer with a **USB Type-C cable**
+   (this is the only port on the board — it's used for both flashing and
+   the Serial log).
+2. Go to **Tools > Board > esp32 > XIAO_ESP32S3**.
+3. Set the following under the **Tools** menu:
+   - **USB CDC On Boot: Enabled** — routes `Serial` through the native USB
+     peripheral so logs come out over the Type-C connector itself, instead
+     of a separate UART pin. This is required for the logging setup below.
+   - **PSRAM: OPI PSRAM** — the camera frame buffer needs it.
+   - **Port**: select the serial port that appeared when you plugged in the
+     board (e.g. `/dev/ttyACM0` on Linux, `COMx` on Windows).
+
+### 4. Install the required library
+
+Open **Tools > Manage Libraries**, search for **tflm_esp32**, and install
+it. This is Espressif/EloquentArduino's Arduino port of TensorFlow Lite for
+Microcontrollers — `ASL_Detector.ino` uses its `tflite::MicroInterpreter` /
+`tflite::MicroMutableOpResolver` API directly (see "Why not EloquentTinyML"
+below for why the higher-level wrapper isn't used here).
+
+### 5. Sync the model and open the sketch
+
+Whenever you retrain/reconvert the model, refresh the header the sketch uses:
+
+```bash
+./sync_model.sh
+```
+
+Then open `esp32/ASL_Detector/ASL_Detector.ino` in the Arduino IDE (it will
+load `camera_pins.h` and `model.h` from the same folder automatically).
+
+### 6. Upload
+
+Click **Upload** (the right-arrow icon). The IDE compiles the sketch and
+flashes it over the same Type-C cable.
+
+### 7. Watch the prediction log
+
+Open **Tools > Serial Monitor**, set the baud rate to **115200**, and make
+sure it's connected to the same port selected in step 3. Predictions stream
+in over the Type-C connector as:
+
+```text
+[12345 ms] letter=A confidence=97.32%
+```
+
+## Notes
+
+- **Logs travel over the same Type-C connector used to flash the board.**
+  The XIAO ESP32S3 has no separate USB-UART chip — its USB port connects
+  directly to the ESP32-S3's native USB peripheral. With **USB CDC On Boot**
+  enabled (step 3), `Serial` in `ASL_Detector.ino` is automatically backed by
+  that native USB connection, so no extra wiring or hardware is needed to see
+  the logs — just the same cable and the Serial Monitor.
+
+- No on-device hand segmentation is attempted (too expensive for the
+  ESP32S3's compute budget) — the camera frame is center-captured at a small
+  square resolution and downsampled directly to the model's 28x28 input, the
+  same way `src/test_model.py` skips segmentation once cropped. Robustness to
+  backgrounds comes from training-time augmentation (see the main
+  [README](../README.md#-notes-on-domain-shift)), not runtime cropping.
+- `ALPHABET` in `ASL_Detector.ino` must stay in sync with `ALPHABET` in
+  `src/test_model.py` (both derive from the Sign Language MNIST label order,
+  skipping J/Z since they require motion).
+- `ARENA_SIZE` in `ASL_Detector.ino` is TFLite Micro's scratch memory for
+  activations/im2col buffers, sized empirically against this specific
+  architecture (retraining with a different architecture in
+  `src/train_model.py` may need a different value). It's allocated with
+  `heap_caps_malloc(ARENA_SIZE, MALLOC_CAP_SPIRAM)` in PSRAM, not internal
+  DRAM — internal DRAM only has ~255KB usable on this board once the rest of
+  the firmware's globals are accounted for, which isn't enough for this
+  model (a 120KB arena reported needing 273728 bytes for a single buffer
+  resize during `AllocateTensors()`). If you see `ERROR: AllocateTensors()
+  failed` or a `Failed to resize buffer` message on the Serial log, it
+  prints `Requested/available/missing` byte counts — bump `ARENA_SIZE` by at
+  least the `missing` amount and reflash; since it's in PSRAM (8MB on the
+  Sense board) there's plenty of room to grow it.
+- `sync_model.sh` patches the copied `model.h` to mark the model byte array
+  `const` and 16-byte aligned. `xxd -i` (used by `src/convert_model.py`)
+  emits a plain mutable array, which the linker places in the ESP32-S3's
+  ~400KB of writable DRAM instead of leaving it memory-mapped in flash — a
+  400KB+ model overflows that budget immediately (`DRAM segment data does
+  not fit`). Always use `sync_model.sh` rather than copying `output/model.h`
+  by hand, or you'll hit this.
+
+#### Why not EloquentTinyML
+
+An earlier version of this sketch used the higher-level `EloquentTinyML`
+wrapper (`Eloquent::TF::Sequential`). Its tensor arena is a fixed-size array
+*member of that class's global instance*, which the linker always places in
+internal DRAM — there's no way to point it at PSRAM. That hits the ~255KB
+DRAM ceiling described above before the model's actual arena requirement is
+met (`DRAM segment data does not fit` / `region dram0_0_seg overflowed`).
+Using the `tflm_esp32` library's lower-level API directly avoids the wrapper
+so the arena can be PSRAM-allocated instead.
