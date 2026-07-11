@@ -41,10 +41,39 @@ uint8_t         *tensorArena  = nullptr;
 TfLiteTensor    *modelInput   = nullptr;
 TfLiteTensor    *modelOutput  = nullptr;
 
-// Capture at 96x96 grayscale (smallest square frame the OV2640 supports) and
-// downsample to the model's 28x28 input. Center your hand in frame and bring
-// it close so it fills most of the view -- there is no on-device hand crop.
+// Capture at 96x96 grayscale (smallest square frame the sensor supports) and
+// downsample to the model's 28x28 input. Center your hand in frame, filling
+// most of the view, but stay outside the lens's close-focus blur zone --
+// roughly a hand's length (15-25cm) back, not pressed up against the
+// camera. There is no on-device hand crop, so framing is on you.
 const int CAPTURE_SIZE = 96;
+
+// Prints exactly what the model receives as ASCII art -- the on-device
+// equivalent of the "Model Input (28x28 preprocessed)" debug window in
+// src/test_model.py, which you don't get on a headless board. Use this to
+// check the two most likely causes of "works on the desktop test, wrong on
+// the device": (1) the hand isn't filling the frame the way it does in
+// test_model.py's guide box, or (2) the sensor's image is mirrored/flipped
+// relative to what the model was trained on -- if the printed hand shape
+// looks left-right or upside-down flipped vs. what you're actually holding
+// up, toggle FLIP_VERTICAL / MIRROR_HORIZONTAL below and re-flash.
+#define DEBUG_PRINT_INPUT 0
+const bool FLIP_VERTICAL = false;
+const bool MIRROR_HORIZONTAL = false;
+
+void printAsciiFrame(const float *img, int size) {
+  static const char ramp[] = " .:-=+*#@";
+  const int levels = sizeof(ramp) - 1;
+  for (int y = 0; y < size; y++) {
+    for (int x = 0; x < size; x++) {
+      int idx = (int)(img[y * size + x] * levels);
+      if (idx < 0) idx = 0;
+      if (idx >= levels) idx = levels - 1;
+      Serial.print(ramp[idx]);
+    }
+    Serial.println();
+  }
+}
 
 esp_err_t initCamera() {
   camera_config_t config = {};
@@ -75,15 +104,33 @@ esp_err_t initCamera() {
   return esp_camera_init(&config);
 }
 
-// Nearest-neighbor downsample of the 96x96 grayscale frame to 28x28,
-// normalized to 0.0-1.0 (matches preprocess_image() in src/test_model.py).
+// Box-average downsample of the 96x96 grayscale frame to 28x28, normalized
+// to 0.0-1.0 -- closer to cv2.resize()'s antialiased default than a
+// nearest-neighbor pick, matching preprocess_image() in src/test_model.py
+// more closely. Applies FLIP_VERTICAL / MIRROR_HORIZONTAL if set above.
 void preprocess(const uint8_t *frame, float *out) {
   const int DST = 28;
   for (int y = 0; y < DST; y++) {
-    int sy = y * CAPTURE_SIZE / DST;
+    int sy0 = y * CAPTURE_SIZE / DST;
+    int sy1 = (y + 1) * CAPTURE_SIZE / DST;
+    if (sy1 <= sy0) sy1 = sy0 + 1;
     for (int x = 0; x < DST; x++) {
-      int sx = x * CAPTURE_SIZE / DST;
-      out[y * DST + x] = frame[sy * CAPTURE_SIZE + sx] / 255.0f;
+      int sx0 = x * CAPTURE_SIZE / DST;
+      int sx1 = (x + 1) * CAPTURE_SIZE / DST;
+      if (sx1 <= sx0) sx1 = sx0 + 1;
+
+      uint32_t sum = 0;
+      int count = 0;
+      for (int sy = sy0; sy < sy1; sy++) {
+        for (int sx = sx0; sx < sx1; sx++) {
+          sum += frame[sy * CAPTURE_SIZE + sx];
+          count++;
+        }
+      }
+
+      int dx = MIRROR_HORIZONTAL ? (DST - 1 - x) : x;
+      int dy = FLIP_VERTICAL ? (DST - 1 - y) : y;
+      out[dy * DST + dx] = (sum / (float)count) / 255.0f;
     }
   }
 }
@@ -99,6 +146,25 @@ void setup() {
 
   if (initCamera() != ESP_OK)
     halt("ERROR: camera init failed. Check camera_pins.h and board wiring.");
+
+  // Max out contrast to help separate the hand from the background -- the
+  // sensor's default settings otherwise produce a flat, low-contrast image
+  // (visible as an ASCII debug frame using only mid-range characters with
+  // no dark/bright ends, and no visible finger gaps).
+  sensor_t *sensor = esp_camera_sensor_get();
+  if (sensor) {
+    Serial.printf("Camera sensor PID: 0x%02x\n", sensor->id.PID);
+    sensor->set_contrast(sensor, 2);
+
+    // OV3660 modules are commonly mounted rotated relative to OV2640 ones
+    // on this board's camera header -- this is the standard correction
+    // Espressif's own camera examples apply for that sensor specifically.
+    if (sensor->id.PID == OV3660_PID) {
+      sensor->set_vflip(sensor, 1);
+      sensor->set_brightness(sensor, 1);
+      sensor->set_saturation(sensor, -2);
+    }
+  }
 
   // Allocate tensor arena in PSRAM (Tools -> PSRAM -> OPI PSRAM must be set).
   tensorArena = (uint8_t *) heap_caps_malloc(ARENA_SIZE, MALLOC_CAP_SPIRAM);
@@ -143,6 +209,10 @@ void loop() {
   preprocess(fb->buf, modelInput->data.f);
   esp_camera_fb_return(fb);
 
+#if DEBUG_PRINT_INPUT
+  printAsciiFrame(modelInput->data.f, 28);
+#endif
+
   if (interpreter->Invoke() != kTfLiteOk) {
     Serial.println("ERROR: Invoke() failed");
     delay(200);
@@ -158,5 +228,9 @@ void loop() {
   Serial.printf("[%lu ms] letter=%c  confidence=%.1f%%\n",
       millis(), ALPHABET[best], modelOutput->data.f[best] * 100.0f);
 
-  delay(200);
+#if DEBUG_PRINT_INPUT
+  delay(800);  // slower so the 28-line ASCII frame above stays readable
+#else
+  delay(20);   // just enough to yield to other tasks; camera+inference is the real limiter
+#endif
 }
