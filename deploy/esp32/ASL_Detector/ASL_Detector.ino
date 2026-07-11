@@ -26,6 +26,13 @@ const char ALPHABET[] = "ABCDEFGHIKLMNOPQRSTUVWXY";
 #define NUM_INPUTS  784   // 28 * 28
 #define NUM_OUTPUTS  24   // len(ALPHABET)
 
+// --- Car communication settings ---
+// Minimum confidence (%) to send a letter to the car controller.
+#define MIN_CONFIDENCE 80.0f
+// GPIO pin for Serial1 TX to the car (D1 on XIAO ESP32S3 Sense).
+// Connect this pin to the Arduino Mega's RX2 (pin 17).
+#define CAR_TX_PIN 2
+
 // Ops used by the trained CNN: QUANTIZE, CONV_2D, MUL, ADD,
 // MAX_POOL_2D, RESHAPE, FULLY_CONNECTED, SOFTMAX, DEQUANTIZE.
 #define TF_NUM_OPS 9

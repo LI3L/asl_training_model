@@ -16,13 +16,22 @@ asl_training_model/
 │   ├── test_model.py         # Live webcam / static-image OpenCV testing
 │   ├── capture_data.py       # Collect labeled real-hand samples from your webcam
 │   ├── capture_backgrounds.py# Collect background-only photos (no hand) for augmentation
-│   └── augment_backgrounds.py# Composite real-hand samples onto varied backgrounds
+│   ├── augment_backgrounds.py# Composite real-hand samples onto varied backgrounds
+│   └── serial_bridge.py      # USB bridge: forwards ESP32 predictions to the car
 ├── data/
 │   ├── sign_mnist_train.csv  # Base Sign Language MNIST training set
 │   ├── sign_mnist_valid.csv  # Base validation set
 │   ├── custom_train.csv      # (generated) your real-hand samples from capture_data.py
 │   ├── backgrounds/          # (generated) background-only photos from capture_backgrounds.py
 │   └── bg_augmented_train.csv# (generated) hand samples composited onto those backgrounds
+├── deploy/
+│   ├── sync_model.sh         # Copies output/model.h into the ESP32 sketch folder
+│   ├── esp32/
+│   │   └── ASL_Detector/     # ESP32-S3 Sense sketch (camera + inference + car output)
+│   └── arduino_mega/
+│       └── ASL_Car_Controller/ # Arduino Mega sketch (receives letters, drives the car)
+├── simulator/
+│   └── index.html            # Web-based car simulator for local testing (no hardware)
 └── output/                    # Generated models and debug artifacts appear here
     ├── asl_model.keras        # Re-trainable Keras model
     ├── asl_model.tflite       # Full int8 quantized microcontroller model
@@ -133,6 +142,115 @@ void setup() {
     ml.begin(_app_output_asl_model_tflite);
 }
 ```
+
+---
+
+## 🚗 ASL Car Control
+
+The camera recognizes ASL hand signs and sends them to an **Arduino Mega** that drives a car with dual motors and servo steering. Five ASL letters map to car actions:
+
+| ASL Letter | Car Action | Description |
+|---|---|---|
+| **F** | Forward | Drive straight with encoder sync |
+| **B** | Backward | Reverse straight |
+| **L** | Left | Turn left while driving forward |
+| **R** | Right | Turn right while driving forward |
+| **S** | Stop | Stop all motors |
+
+All other recognized letters are ignored. Only predictions with **≥ 80% confidence** are acted on. The car **auto-stops after 3 seconds** of no valid command (safety timeout).
+
+### How it works
+
+The ESP32-S3 Sense logs predictions over USB Serial at ~1.2-second intervals:
+
+```text
+[105167 ms] letter=A  confidence=98.8%
+[106398 ms] letter=F  confidence=89.4%
+[107629 ms] letter=F  confidence=92.1%
+```
+
+When a prediction passes the 80% confidence threshold, the ESP32 also sends just the letter character over a second serial line (`Serial1` on GPIO2) to the Arduino Mega, which executes the corresponding motor/servo command.
+
+### Connection Option 1: Direct wire (recommended for a moving car)
+
+Two wires between the boards — no computer needed once flashed:
+
+```text
+ESP32-S3 Sense          Arduino Mega
+   D1 (GPIO2) ────TX────→ Pin 17 (RX2)
+   GND        ───────────→ GND
+```
+
+> ⚠️ **Voltage levels:** The ESP32-S3 is 3.3V, the Arduino Mega is 5V. The TX→RX direction (3.3V → 5V) is safe — the Mega reads 3.3V as HIGH. If you ever need communication in the other direction, use a voltage divider.
+
+**Steps:**
+
+1. Sync the model into the ESP32 sketch (if you retrained):
+   ```bash
+   ./deploy/sync_model.sh
+   ```
+
+2. Flash the **ESP32-S3 Sense** — open `deploy/esp32/ASL_Detector/ASL_Detector.ino` in Arduino IDE:
+   - Board: **XIAO_ESP32S3**
+   - PSRAM: **OPI PSRAM**
+   - USB CDC On Boot: **Enabled**
+   - Library: **tflm_esp32**
+   - Click **Upload**
+
+3. Flash the **Arduino Mega** — open `deploy/arduino_mega/ASL_Car_Controller/ASL_Car_Controller.ino` in Arduino IDE:
+   - Board: **Arduino Mega 2560**
+   - Click **Upload**
+
+4. Wire `D1 → Pin 17` and `GND → GND` between the boards.
+
+5. Power both boards. Show an ASL sign to the camera, hold it steady for ~1–2 seconds — the car moves. Lower your hand — the car stops after 3 seconds.
+
+### Connection Option 2: USB through a computer (for testing/debugging)
+
+Both boards stay plugged into your computer via USB. A Python script reads the ESP32's log, filters by confidence, and forwards the letter to the Mega.
+
+**Steps:**
+
+1. Flash both boards the same way as Option 1.
+
+2. Install the Python dependency:
+   ```bash
+   pip install pyserial
+   ```
+
+3. Find the COM ports — open Device Manager → Ports (COM & LPT). You'll see two ports, one per board.
+
+4. Run the bridge:
+   ```bash
+   python src/serial_bridge.py --esp32 COM3 --car COM5
+   ```
+   *(Replace `COM3`/`COM5` with your actual port numbers.)*
+
+   The bridge shows a live table of every prediction and whether it was forwarded or skipped:
+
+   ```text
+        TIME  LETTER     CONF  ACTION
+      105167       A    98.8%  skip (low confidence)
+      106398       F    89.4%  SEND → F
+      107629       F    92.1%  SEND → F
+   ```
+   (The letter `A` is skipped because it's not a car command — only F/B/L/R/S are forwarded.)
+
+5. To just monitor the camera without sending to the car:
+   ```bash
+   python src/serial_bridge.py --esp32 COM3 --dry-run
+   ```
+
+### Local simulator (no hardware needed)
+
+Open `simulator/index.html` in any browser to test the full pipeline visually:
+
+- **Keyboard mode** — press `F`, `B`, `L`, `R`, `S` to drive a virtual car. Press `C` to clear the trail.
+- **Log Replay mode** — paste real ESP32 camera logs and click ▶ Replay. The simulator plays them back at real-time intervals, shows which predictions pass the 80% confidence threshold, and drives the car accordingly.
+
+The simulator includes a live timeout countdown bar, command feed with accept/reject status, and motor telemetry — everything the real car does, visualized.
+
+---
 
 ## 🧠 Notes on Domain Shift
 
