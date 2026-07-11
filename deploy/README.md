@@ -129,11 +129,22 @@ back to a clean one-line-per-prediction log.
   the logs — just the same cable and the Serial Monitor.
 
 - No on-device hand segmentation is attempted (too expensive for the
-  ESP32S3's compute budget) — the camera frame is center-captured at a small
-  square resolution and downsampled directly to the model's 28x28 input, the
-  same way `src/test_model.py` skips segmentation once cropped. Robustness to
-  backgrounds comes from training-time augmentation (see the main
-  [README](../README.md#-notes-on-domain-shift)), not runtime cropping.
+  ESP32S3's compute budget). `preprocess()` does apply a fixed center crop
+  (`CROP_FRACTION`, default 0.7 — the center 70% of the 96x96 capture) before
+  downsampling to 28x28, which trims some background and makes the hand fill
+  more of the model's input, but it's not real hand detection — you still
+  need to frame your hand centered and close-ish (see the distance note
+  above). Robustness to backgrounds otherwise comes from training-time
+  augmentation (see the main [README](../README.md#-notes-on-domain-shift)),
+  not runtime cropping.
+- Predictions are smoothed: a single frame's guess is only counted if its
+  confidence is at least `MIN_CONFIDENCE` (default 40%), and a letter is
+  only logged once it's the majority of the last `SMOOTH_WINDOW` frames
+  (default 3 of the last 5). This trades a little latency for cutting down
+  flicker between noisy single-frame misreads. While no letter has reached a
+  majority yet, the log prints `[ms] ...` instead of a guess. Lower
+  `SMOOTH_MAJORITY`/`SMOOTH_WINDOW` or `MIN_CONFIDENCE` for faster but
+  noisier output, raise them for steadier but slower-to-update output.
 - `ALPHABET` in `ASL_Detector.ino` must stay in sync with `ALPHABET` in
   `src/test_model.py` (both derive from the Sign Language MNIST label order,
   skipping J/Z since they require motion).

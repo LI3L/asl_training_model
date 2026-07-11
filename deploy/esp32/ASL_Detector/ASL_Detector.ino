@@ -30,6 +30,13 @@ const char ALPHABET[] = "ABCDEFGHIKLMNOPQRSTUVWXY";
 // MAX_POOL_2D, RESHAPE, FULLY_CONNECTED, SOFTMAX, DEQUANTIZE.
 #define TF_NUM_OPS 9
 
+// Ignore single-frame guesses below this confidence entirely, and only log
+// a letter once it's the majority of the last SMOOTH_WINDOW frames -- cuts
+// down on flicker between noisy single-frame misreads.
+#define MIN_CONFIDENCE 0.40f
+#define SMOOTH_WINDOW 5
+#define SMOOTH_MAJORITY 3
+
 // Tensor arena in PSRAM (8 MB on the Sense board). Internal DRAM (~255 KB
 // usable) is too small for this model's im2col scratch buffers. Requires
 // Tools -> PSRAM -> OPI PSRAM to be set in Arduino IDE board settings.
@@ -41,12 +48,25 @@ uint8_t         *tensorArena  = nullptr;
 TfLiteTensor    *modelInput   = nullptr;
 TfLiteTensor    *modelOutput  = nullptr;
 
-// Capture at 96x96 grayscale (smallest square frame the sensor supports) and
-// downsample to the model's 28x28 input. Center your hand in frame, filling
-// most of the view, but stay outside the lens's close-focus blur zone --
-// roughly a hand's length (15-25cm) back, not pressed up against the
-// camera. There is no on-device hand crop, so framing is on you.
+// Ring buffer of recent above-threshold predictions, used for majority-vote
+// smoothing in loop() below.
+int   smoothHistory[SMOOTH_WINDOW];
+float smoothConf[SMOOTH_WINDOW];
+int   smoothIdx = 0;
+
+// Capture at 96x96 grayscale (smallest square frame the sensor supports).
+// Center your hand in frame, filling most of the view, but stay outside the
+// lens's close-focus blur zone -- roughly a hand's length (15-25cm) back,
+// not pressed up against the camera.
 const int CAPTURE_SIZE = 96;
+
+// preprocess() below downsamples only the center CROP_FRACTION of the
+// capture (discarding the outer margin) instead of squeezing the entire
+// field of view into the model's 28x28 input. This is a fixed center crop,
+// not real hand detection (too expensive for this board), but it trims
+// unused background and makes the hand fill more of what the model
+// actually sees, closer to the tightly-cropped training images.
+const float CROP_FRACTION = 0.7f;
 
 // Prints exactly what the model receives as ASCII art -- the on-device
 // equivalent of the "Model Input (28x28 preprocessed)" debug window in
@@ -104,19 +124,23 @@ esp_err_t initCamera() {
   return esp_camera_init(&config);
 }
 
-// Box-average downsample of the 96x96 grayscale frame to 28x28, normalized
-// to 0.0-1.0 -- closer to cv2.resize()'s antialiased default than a
-// nearest-neighbor pick, matching preprocess_image() in src/test_model.py
-// more closely. Applies FLIP_VERTICAL / MIRROR_HORIZONTAL if set above.
+// Box-average downsample of the center CROP_FRACTION of the 96x96 grayscale
+// frame to 28x28, normalized to 0.0-1.0 -- closer to cv2.resize()'s
+// antialiased default than a nearest-neighbor pick, matching
+// preprocess_image() in src/test_model.py more closely. Applies
+// FLIP_VERTICAL / MIRROR_HORIZONTAL if set above.
 void preprocess(const uint8_t *frame, float *out) {
   const int DST = 28;
+  const int cropSize = (int)(CAPTURE_SIZE * CROP_FRACTION);
+  const int cropOffset = (CAPTURE_SIZE - cropSize) / 2;
+
   for (int y = 0; y < DST; y++) {
-    int sy0 = y * CAPTURE_SIZE / DST;
-    int sy1 = (y + 1) * CAPTURE_SIZE / DST;
+    int sy0 = cropOffset + y * cropSize / DST;
+    int sy1 = cropOffset + (y + 1) * cropSize / DST;
     if (sy1 <= sy0) sy1 = sy0 + 1;
     for (int x = 0; x < DST; x++) {
-      int sx0 = x * CAPTURE_SIZE / DST;
-      int sx1 = (x + 1) * CAPTURE_SIZE / DST;
+      int sx0 = cropOffset + x * cropSize / DST;
+      int sx1 = cropOffset + (x + 1) * cropSize / DST;
       if (sx1 <= sx0) sx1 = sx0 + 1;
 
       uint32_t sum = 0;
@@ -143,6 +167,12 @@ void halt(const char *msg) {
 void setup() {
   Serial.begin(115200);
   while (!Serial) delay(10);
+
+  // -1 marks a slot as empty so it doesn't get counted as a vote for
+  // letter A (index 0) before real predictions fill the window.
+  for (int i = 0; i < SMOOTH_WINDOW; i++) {
+    smoothHistory[i] = -1;
+  }
 
   if (initCamera() != ESP_OK)
     halt("ERROR: camera init failed. Check camera_pins.h and board wiring.");
@@ -224,9 +254,41 @@ void loop() {
     if (modelOutput->data.f[i] > modelOutput->data.f[best])
       best = i;
   }
+  float confidence = modelOutput->data.f[best];
 
-  Serial.printf("[%lu ms] letter=%c  confidence=%.1f%%\n",
-      millis(), ALPHABET[best], modelOutput->data.f[best] * 100.0f);
+  // Only feed above-threshold guesses into the smoothing window -- a
+  // low-confidence frame shouldn't be able to win a majority vote.
+  if (confidence >= MIN_CONFIDENCE) {
+    smoothHistory[smoothIdx] = best;
+    smoothConf[smoothIdx] = confidence;
+    smoothIdx = (smoothIdx + 1) % SMOOTH_WINDOW;
+  }
+
+  int letterCounts[NUM_OUTPUTS] = {0};
+  float letterConfSum[NUM_OUTPUTS] = {0};
+  for (int i = 0; i < SMOOTH_WINDOW; i++) {
+    int letter = smoothHistory[i];
+    if (letter >= 0) {
+      letterCounts[letter]++;
+      letterConfSum[letter] += smoothConf[i];
+    }
+  }
+
+  int stableLetter = -1, stableCount = 0;
+  for (int i = 0; i < NUM_OUTPUTS; i++) {
+    if (letterCounts[i] > stableCount) {
+      stableCount = letterCounts[i];
+      stableLetter = i;
+    }
+  }
+
+  if (stableLetter >= 0 && stableCount >= SMOOTH_MAJORITY) {
+    float avgConfidence = letterConfSum[stableLetter] / stableCount;
+    Serial.printf("[%lu ms] letter=%c  confidence=%.1f%%\n",
+        millis(), ALPHABET[stableLetter], avgConfidence * 100.0f);
+  } else {
+    Serial.printf("[%lu ms] ...\n", millis());
+  }
 
 #if DEBUG_PRINT_INPUT
   delay(800);  // slower so the 28-line ASCII frame above stays readable
