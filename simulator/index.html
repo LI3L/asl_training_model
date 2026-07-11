@@ -1,0 +1,1131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ASL Car Control — Local Simulator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-primary: #0a0a14;
+      --bg-secondary: #12121f;
+      --bg-card: #181830;
+      --bg-card-hover: #1e1e3a;
+      --border: #2a2a4a;
+      --text-primary: #e8e8f0;
+      --text-secondary: #8888aa;
+      --text-muted: #5a5a7a;
+      --accent-blue: #4f8cff;
+      --accent-blue-glow: rgba(79, 140, 255, 0.25);
+      --accent-green: #22c97a;
+      --accent-green-glow: rgba(34, 201, 122, 0.25);
+      --accent-red: #ff4466;
+      --accent-red-glow: rgba(255, 68, 102, 0.25);
+      --accent-orange: #ff8844;
+      --accent-yellow: #ffd444;
+      --accent-purple: #aa66ff;
+      --radius: 12px;
+      --radius-sm: 8px;
+      --shadow: 0 4px 24px rgba(0,0,0,0.4);
+    }
+
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ===== Header ===== */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 28px;
+      background: linear-gradient(180deg, rgba(18,18,31,0.95), rgba(10,10,20,0.9));
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .header-left { display: flex; align-items: center; gap: 14px; }
+    .logo {
+      width: 36px; height: 36px;
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; font-weight: 800; color: #fff;
+    }
+    .header h1 {
+      font-size: 18px; font-weight: 700;
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .header-subtitle {
+      font-size: 12px; color: var(--text-muted); font-weight: 400;
+    }
+    .status-pill {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 12px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .status-pill.active {
+      background: var(--accent-green-glow);
+      color: var(--accent-green);
+      border: 1px solid rgba(34,201,122,0.3);
+    }
+    .status-pill.stopped {
+      background: var(--accent-red-glow);
+      color: var(--accent-red);
+      border: 1px solid rgba(255,68,102,0.3);
+    }
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: currentColor;
+      animation: pulse-dot 1.5s infinite;
+    }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    /* ===== Layout ===== */
+    .main-layout {
+      display: grid;
+      grid-template-columns: 1fr 380px;
+      gap: 20px;
+      padding: 20px 28px;
+      max-width: 1400px;
+      margin: 0 auto;
+      min-height: calc(100vh - 72px);
+    }
+
+    /* ===== Canvas area ===== */
+    .canvas-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .canvas-container {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+    .canvas-container canvas {
+      width: 100%;
+      height: 100%;
+      border-radius: var(--radius-sm);
+    }
+
+    /* Telemetry bar below canvas */
+    .telemetry-bar {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 10px;
+    }
+    .telem-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px 14px;
+      text-align: center;
+      transition: border-color 0.3s, box-shadow 0.3s;
+    }
+    .telem-card.highlight {
+      border-color: var(--accent-blue);
+      box-shadow: 0 0 12px var(--accent-blue-glow);
+    }
+    .telem-label {
+      font-size: 10px; font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: 1px;
+      margin-bottom: 4px;
+    }
+    .telem-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 20px; font-weight: 700;
+      color: var(--text-primary);
+    }
+    .telem-value.green { color: var(--accent-green); }
+    .telem-value.red { color: var(--accent-red); }
+    .telem-value.blue { color: var(--accent-blue); }
+    .telem-value.orange { color: var(--accent-orange); }
+    .telem-value.yellow { color: var(--accent-yellow); }
+
+    /* ===== Right panel ===== */
+    .right-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .panel-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+    .panel-card-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255,255,255,0.02);
+    }
+    .panel-card-header h3 {
+      font-size: 13px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.8px;
+      color: var(--text-secondary);
+    }
+    .panel-card-body { padding: 16px; }
+
+    /* Mode selector tabs */
+    .mode-tabs {
+      display: flex; gap: 4px;
+      background: var(--bg-primary);
+      border-radius: 8px;
+      padding: 3px;
+    }
+    .mode-tab {
+      padding: 6px 14px;
+      font-size: 12px; font-weight: 600;
+      color: var(--text-muted);
+      border: none; background: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .mode-tab:hover { color: var(--text-secondary); }
+    .mode-tab.active {
+      background: var(--accent-blue);
+      color: #fff;
+    }
+
+    /* Keyboard guide */
+    .key-guide {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .key-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 12px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      transition: all 0.15s;
+    }
+    .key-item.active-key {
+      border-color: var(--accent-blue);
+      background: rgba(79, 140, 255, 0.08);
+      box-shadow: 0 0 8px var(--accent-blue-glow);
+    }
+    .key-badge {
+      width: 32px; height: 32px;
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 14px; font-weight: 700;
+      border-radius: 6px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+      flex-shrink: 0;
+    }
+    .key-action {
+      font-size: 11px; font-weight: 500;
+      color: var(--text-secondary);
+      line-height: 1.3;
+    }
+    .key-action .emoji { margin-right: 3px; }
+
+    /* Log replay */
+    .log-textarea {
+      width: 100%;
+      min-height: 100px;
+      max-height: 160px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      padding: 10px 12px;
+      resize: vertical;
+      margin-top: 12px;
+      line-height: 1.5;
+    }
+    .log-textarea:focus {
+      outline: none;
+      border-color: var(--accent-blue);
+    }
+    .log-textarea::placeholder { color: var(--text-muted); }
+
+    .replay-controls {
+      display: flex; gap: 8px;
+      margin-top: 10px;
+    }
+    .btn {
+      padding: 8px 16px;
+      font-size: 12px; font-weight: 600;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      cursor: pointer;
+      transition: all 0.15s;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .btn:hover { background: var(--bg-card-hover); border-color: var(--text-muted); }
+    .btn.primary {
+      background: var(--accent-blue);
+      border-color: var(--accent-blue);
+      color: #fff;
+    }
+    .btn.primary:hover { background: #3a7aee; }
+    .btn.danger {
+      background: var(--accent-red);
+      border-color: var(--accent-red);
+      color: #fff;
+    }
+    .btn.danger:hover { background: #e63355; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* Timeout bar */
+    .timeout-container {
+      margin-top: 8px;
+    }
+    .timeout-bar-bg {
+      width: 100%;
+      height: 6px;
+      background: var(--bg-primary);
+      border-radius: 3px;
+      overflow: hidden;
+      margin-top: 6px;
+    }
+    .timeout-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.1s linear, background 0.3s;
+      background: var(--accent-green);
+    }
+    .timeout-label {
+      display: flex; justify-content: space-between;
+      font-size: 11px; color: var(--text-muted); font-weight: 500;
+    }
+
+    /* Command feed */
+    .cmd-feed {
+      max-height: 260px;
+      overflow-y: auto;
+      padding: 4px 0;
+    }
+    .cmd-feed::-webkit-scrollbar { width: 4px; }
+    .cmd-feed::-webkit-scrollbar-track { background: transparent; }
+    .cmd-feed::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .cmd-entry {
+      display: flex; align-items: center; gap: 10px;
+      padding: 7px 12px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      border-bottom: 1px solid rgba(42,42,74,0.4);
+      transition: background 0.15s;
+      animation: fadeIn 0.2s ease;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateX(-8px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+    .cmd-entry:hover { background: rgba(255,255,255,0.02); }
+    .cmd-entry.accepted .cmd-letter { background: var(--accent-green-glow); color: var(--accent-green); border-color: rgba(34,201,122,0.3); }
+    .cmd-entry.rejected .cmd-letter { background: var(--accent-red-glow); color: var(--accent-red); border-color: rgba(255,68,102,0.3); }
+    .cmd-entry.rejected { opacity: 0.5; }
+    .cmd-letter {
+      width: 26px; height: 26px;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 13px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg-primary);
+      flex-shrink: 0;
+    }
+    .cmd-conf {
+      flex: 1;
+      color: var(--text-secondary);
+    }
+    .cmd-status {
+      font-weight: 600; font-size: 10px;
+      text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .cmd-status.pass { color: var(--accent-green); }
+    .cmd-status.fail { color: var(--accent-red); }
+
+    .cmd-feed-empty {
+      text-align: center;
+      padding: 32px 16px;
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+
+    /* Settings row */
+    .settings-row {
+      display: flex; align-items: center; gap: 10px;
+      margin-top: 12px;
+    }
+    .settings-label {
+      font-size: 11px; font-weight: 600;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+    .settings-input {
+      width: 60px;
+      padding: 5px 8px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px; font-weight: 600;
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-primary);
+      text-align: center;
+    }
+    .settings-input:focus { outline: none; border-color: var(--accent-blue); }
+    .settings-unit {
+      font-size: 11px; color: var(--text-muted);
+    }
+
+    /* Responsive */
+    @media (max-width: 900px) {
+      .main-layout {
+        grid-template-columns: 1fr;
+      }
+      .telemetry-bar {
+        grid-template-columns: repeat(3, 1fr);
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="header">
+    <div class="header-left">
+      <div class="logo">🤟</div>
+      <div>
+        <h1>ASL Car Control Simulator</h1>
+        <div class="header-subtitle">Local testing — no hardware required</div>
+      </div>
+    </div>
+    <div id="statusPill" class="status-pill stopped">
+      <div class="status-dot"></div>
+      <span id="statusText">Stopped</span>
+    </div>
+  </div>
+
+  <!-- Main Layout -->
+  <div class="main-layout">
+
+    <!-- Left: Canvas -->
+    <div class="canvas-panel">
+      <div class="canvas-container">
+        <canvas id="carCanvas"></canvas>
+      </div>
+      <div class="telemetry-bar">
+        <div class="telem-card" id="telemCmd">
+          <div class="telem-label">Command</div>
+          <div class="telem-value" id="telemCmdVal">—</div>
+        </div>
+        <div class="telem-card" id="telemSpeed">
+          <div class="telem-label">Speed</div>
+          <div class="telem-value" id="telemSpeedVal">0</div>
+        </div>
+        <div class="telem-card" id="telemSteering">
+          <div class="telem-label">Steering</div>
+          <div class="telem-value blue" id="telemSteerVal">50°</div>
+        </div>
+        <div class="telem-card" id="telemMotor1">
+          <div class="telem-label">Motor L</div>
+          <div class="telem-value" id="telemM1Val">OFF</div>
+        </div>
+        <div class="telem-card" id="telemMotor2">
+          <div class="telem-label">Motor R</div>
+          <div class="telem-value" id="telemM2Val">OFF</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Controls -->
+    <div class="right-panel">
+
+      <!-- Input mode -->
+      <div class="panel-card">
+        <div class="panel-card-header">
+          <h3>Input Source</h3>
+          <div class="mode-tabs">
+            <button class="mode-tab active" data-mode="keyboard" onclick="setMode('keyboard')">Keyboard</button>
+            <button class="mode-tab" data-mode="replay" onclick="setMode('replay')">Log Replay</button>
+          </div>
+        </div>
+        <div class="panel-card-body">
+          <!-- Keyboard mode -->
+          <div id="keyboardMode">
+            <div class="key-guide">
+              <div class="key-item" id="keyF">
+                <div class="key-badge">F</div>
+                <div class="key-action"><span class="emoji">⬆️</span> Forward</div>
+              </div>
+              <div class="key-item" id="keyB">
+                <div class="key-badge">B</div>
+                <div class="key-action"><span class="emoji">⬇️</span> Backward</div>
+              </div>
+              <div class="key-item" id="keyS">
+                <div class="key-badge">S</div>
+                <div class="key-action"><span class="emoji">⏹️</span> Stop</div>
+              </div>
+              <div class="key-item" id="keyL">
+                <div class="key-badge">L</div>
+                <div class="key-action"><span class="emoji">⬅️</span> Left</div>
+              </div>
+              <div class="key-item" id="keyR">
+                <div class="key-badge">R</div>
+                <div class="key-action"><span class="emoji">➡️</span> Right</div>
+              </div>
+              <div class="key-item" id="keyC">
+                <div class="key-badge">C</div>
+                <div class="key-action"><span class="emoji">🔄</span> Clear trail</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Log replay mode -->
+          <div id="replayMode" style="display:none">
+            <textarea id="logInput" class="log-textarea" placeholder="Paste ESP32 logs here, e.g.:
+[105167 ms] letter=A  confidence=98.8%
+[106398 ms] letter=F  confidence=89.4%
+[107629 ms] letter=F  confidence=92.1%
+..."></textarea>
+            <div class="replay-controls">
+              <button class="btn primary" id="btnReplay" onclick="startReplay()">▶ Replay</button>
+              <button class="btn danger" id="btnStopReplay" onclick="stopReplay()" disabled>■ Stop</button>
+              <button class="btn" onclick="loadSampleLogs()">📋 Sample</button>
+            </div>
+          </div>
+
+          <!-- Settings -->
+          <div class="settings-row">
+            <span class="settings-label">Confidence threshold</span>
+            <input type="number" class="settings-input" id="thresholdInput" value="80" min="0" max="100" step="5" onchange="updateThreshold()">
+            <span class="settings-unit">%</span>
+            <span style="flex:1"></span>
+            <span class="settings-label">Timeout</span>
+            <input type="number" class="settings-input" id="timeoutInput" value="3" min="1" max="10" step="0.5" onchange="updateTimeout()">
+            <span class="settings-unit">sec</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Timeout bar -->
+      <div class="panel-card">
+        <div class="panel-card-header">
+          <h3>Timeout Countdown</h3>
+          <span id="timeoutDisplay" style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-green);font-weight:600">3.0s</span>
+        </div>
+        <div class="panel-card-body" style="padding:12px 16px">
+          <div class="timeout-bar-bg">
+            <div class="timeout-bar-fill" id="timeoutBar" style="width:100%"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Command feed -->
+      <div class="panel-card" style="flex:1;display:flex;flex-direction:column;min-height:0;">
+        <div class="panel-card-header">
+          <h3>Command Feed</h3>
+          <button class="btn" style="padding:4px 10px;font-size:11px" onclick="clearFeed()">Clear</button>
+        </div>
+        <div class="cmd-feed" id="cmdFeed">
+          <div class="cmd-feed-empty" id="feedEmpty">
+            No commands received yet.<br>Press a key or replay logs to start.
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+<script>
+// ===== Configuration =====
+let CONFIDENCE_THRESHOLD = 80;
+let TIMEOUT_MS = 3000;
+
+// ===== Car State =====
+const car = {
+  x: 0, y: 0,
+  heading: -Math.PI / 2,   // pointing up
+  steeringAngle: 50,       // servo degrees (30=right, 50=straight, 70=left)
+  targetSteering: 50,
+  speed: 0,
+  targetSpeed: 0,
+  command: 'S',
+  lastCommandTime: 0,
+  trail: [],
+  isMoving: false,
+};
+
+const DRIVE_SPEED = 2.0;
+const TURN_SPEED = 1.5;
+const ANGLE_STRAIGHT = 50;
+const ANGLE_RIGHT = 30;
+const ANGLE_LEFT = 70;
+
+// ===== Canvas Setup =====
+const canvas = document.getElementById('carCanvas');
+const ctx = canvas.getContext('2d');
+let animFrame;
+
+function resizeCanvas() {
+  const container = canvas.parentElement;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = container.clientWidth * dpr;
+  canvas.height = container.clientHeight * dpr;
+  canvas.style.width = container.clientWidth + 'px';
+  canvas.style.height = container.clientHeight + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // Center the car at start
+  if (car.x === 0 && car.y === 0) {
+    car.x = container.clientWidth / 2;
+    car.y = container.clientHeight / 2;
+  }
+}
+
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// ===== Drawing =====
+function drawGrid() {
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  const gridSize = 40;
+
+  ctx.strokeStyle = 'rgba(42, 42, 74, 0.3)';
+  ctx.lineWidth = 0.5;
+  for (let x = 0; x < w; x += gridSize) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+  }
+  for (let y = 0; y < h; y += gridSize) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+  }
+}
+
+function drawTrail() {
+  if (car.trail.length < 2) return;
+
+  for (let i = 1; i < car.trail.length; i++) {
+    const alpha = (i / car.trail.length) * 0.6 + 0.05;
+    const width = (i / car.trail.length) * 2.5 + 0.5;
+    ctx.strokeStyle = `rgba(79, 140, 255, ${alpha})`;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.moveTo(car.trail[i - 1].x, car.trail[i - 1].y);
+    ctx.lineTo(car.trail[i].x, car.trail[i].y);
+    ctx.stroke();
+  }
+
+  // Glow on the last few points
+  const last = car.trail.length - 1;
+  if (last > 0) {
+    const gradient = ctx.createRadialGradient(
+      car.trail[last].x, car.trail[last].y, 0,
+      car.trail[last].x, car.trail[last].y, 12
+    );
+    gradient.addColorStop(0, 'rgba(79, 140, 255, 0.3)');
+    gradient.addColorStop(1, 'rgba(79, 140, 255, 0)');
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(car.trail[last].x, car.trail[last].y, 12, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawCar() {
+  ctx.save();
+  ctx.translate(car.x, car.y);
+  ctx.rotate(car.heading);
+
+  const W = 24, L = 40;
+
+  // Shadow
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+  ctx.beginPath();
+  ctx.roundRect(-W / 2 + 2, -L / 2 + 2, W, L, 5);
+  ctx.fill();
+
+  // Body
+  const bodyGrad = ctx.createLinearGradient(0, -L / 2, 0, L / 2);
+  bodyGrad.addColorStop(0, '#3366cc');
+  bodyGrad.addColorStop(0.5, '#2952a3');
+  bodyGrad.addColorStop(1, '#1f3d7a');
+  ctx.fillStyle = bodyGrad;
+  ctx.beginPath();
+  ctx.roundRect(-W / 2, -L / 2, W, L, 5);
+  ctx.fill();
+
+  // Body outline
+  ctx.strokeStyle = 'rgba(79, 140, 255, 0.5)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Windshield
+  ctx.fillStyle = 'rgba(100, 180, 255, 0.25)';
+  ctx.beginPath();
+  ctx.roundRect(-W / 2 + 3, -L / 2 + 4, W - 6, 10, 3);
+  ctx.fill();
+
+  // Headlights (at front = top when heading up)
+  const headlightColor = car.isMoving ? '#ffdd44' : '#665522';
+  ctx.fillStyle = headlightColor;
+  ctx.beginPath();
+  ctx.arc(-W / 2 + 4, -L / 2 + 2, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(W / 2 - 4, -L / 2 + 2, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Headlight beams when moving
+  if (car.isMoving && car.speed > 0) {
+    ctx.fillStyle = 'rgba(255, 221, 68, 0.08)';
+    ctx.beginPath();
+    ctx.moveTo(-W / 2 + 1, -L / 2);
+    ctx.lineTo(-W / 2 - 15, -L / 2 - 50);
+    ctx.lineTo(W / 2 + 15, -L / 2 - 50);
+    ctx.lineTo(W / 2 - 1, -L / 2);
+    ctx.fill();
+  }
+
+  // Tail lights
+  const tailColor = car.command === 'S' ? '#ff3344' : '#661122';
+  ctx.fillStyle = tailColor;
+  ctx.beginPath();
+  ctx.arc(-W / 2 + 4, L / 2 - 3, 2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(W / 2 - 4, L / 2 - 3, 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Steering indicator (front wheels)
+  const steerRad = ((car.steeringAngle - 50) / 20) * 0.4;
+  ctx.save();
+  // Left wheel
+  ctx.translate(-W / 2 - 2, -L / 2 + 10);
+  ctx.rotate(steerRad);
+  ctx.fillStyle = '#444';
+  ctx.fillRect(-2, -5, 4, 10);
+  ctx.restore();
+
+  ctx.save();
+  // Right wheel
+  ctx.translate(W / 2 + 2, -L / 2 + 10);
+  ctx.rotate(steerRad);
+  ctx.fillStyle = '#444';
+  ctx.fillRect(-2, -5, 4, 10);
+  ctx.restore();
+
+  // Rear wheels (no steering)
+  ctx.fillStyle = '#444';
+  ctx.fillRect(-W / 2 - 4, L / 2 - 14, 4, 10);
+  ctx.fillRect(W / 2, L / 2 - 14, 4, 10);
+
+  // Direction arrow
+  if (car.isMoving) {
+    const arrowDir = car.speed > 0 ? -1 : 1;
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, arrowDir * 5);
+    ctx.lineTo(0, arrowDir * -8);
+    ctx.moveTo(-4, arrowDir * -4);
+    ctx.lineTo(0, arrowDir * -8);
+    ctx.lineTo(4, arrowDir * -4);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+
+  // Glow around car when active
+  if (car.isMoving) {
+    const glow = ctx.createRadialGradient(car.x, car.y, 15, car.x, car.y, 50);
+    glow.addColorStop(0, 'rgba(79, 140, 255, 0.12)');
+    glow.addColorStop(1, 'rgba(79, 140, 255, 0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(car.x, car.y, 50, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawCommandOverlay() {
+  // Show current command in top-left of canvas
+  const cmdNames = { F: 'FORWARD', B: 'BACKWARD', L: 'LEFT', R: 'RIGHT', S: 'STOPPED' };
+  const cmdColors = { F: '#22c97a', B: '#ff8844', L: '#4f8cff', R: '#aa66ff', S: '#ff4466' };
+
+  const name = cmdNames[car.command] || 'UNKNOWN';
+  const color = cmdColors[car.command] || '#888';
+
+  ctx.font = '600 14px Inter, sans-serif';
+  ctx.fillStyle = color;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText(`● ${name}`, 16, 16);
+}
+
+// ===== Physics Update =====
+function updateCar(dt) {
+  // Smooth steering transition
+  if (car.steeringAngle !== car.targetSteering) {
+    const steerSpeed = 100 * dt; // degrees per second
+    if (car.steeringAngle < car.targetSteering) {
+      car.steeringAngle = Math.min(car.steeringAngle + steerSpeed, car.targetSteering);
+    } else {
+      car.steeringAngle = Math.max(car.steeringAngle - steerSpeed, car.targetSteering);
+    }
+  }
+
+  // Smooth speed transition
+  const accel = 8 * dt;
+  if (car.speed < car.targetSpeed) {
+    car.speed = Math.min(car.speed + accel, car.targetSpeed);
+  } else if (car.speed > car.targetSpeed) {
+    car.speed = Math.max(car.speed - accel * 2, car.targetSpeed); // decel faster
+  }
+
+  // Check timeout
+  if (car.command !== 'S' && (Date.now() - car.lastCommandTime > TIMEOUT_MS)) {
+    processCommand('S', 100, true); // auto-stop
+  }
+
+  // Movement
+  car.isMoving = Math.abs(car.speed) > 0.05;
+  if (car.isMoving) {
+    // Turn rate based on steering angle deviation from straight
+    const turnRate = ((car.steeringAngle - ANGLE_STRAIGHT) / 20) * 1.5 * dt;
+    car.heading += turnRate * (car.speed > 0 ? 1 : -1);
+
+    car.x += Math.cos(car.heading) * car.speed;
+    car.y += Math.sin(car.heading) * car.speed;
+
+    // Wrap around canvas
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    if (car.x < -20) car.x = w + 20;
+    if (car.x > w + 20) car.x = -20;
+    if (car.y < -20) car.y = h + 20;
+    if (car.y > h + 20) car.y = -20;
+
+    // Add to trail
+    car.trail.push({ x: car.x, y: car.y });
+    if (car.trail.length > 600) car.trail.shift();
+  }
+}
+
+let lastTime = performance.now();
+function animate(timestamp) {
+  const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
+  lastTime = timestamp;
+
+  updateCar(dt);
+  updateUI();
+
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  ctx.clearRect(0, 0, w, h);
+  drawGrid();
+  drawTrail();
+  drawCar();
+  drawCommandOverlay();
+
+  animFrame = requestAnimationFrame(animate);
+}
+animFrame = requestAnimationFrame(animate);
+
+// ===== Command Processing =====
+function processCommand(letter, confidence, isTimeout = false) {
+  const isValid = letter === 'F' || letter === 'B' || letter === 'L' || letter === 'R' || letter === 'S';
+  const passesThreshold = confidence >= CONFIDENCE_THRESHOLD;
+  const accepted = isValid && (passesThreshold || isTimeout);
+
+  // Add to feed (unless it's a timeout auto-stop)
+  if (!isTimeout) {
+    addFeedEntry(letter, confidence, accepted, isValid);
+  }
+
+  if (!accepted) return;
+
+  car.command = letter;
+  car.lastCommandTime = Date.now();
+
+  switch (letter) {
+    case 'F':
+      car.targetSpeed = DRIVE_SPEED;
+      car.targetSteering = ANGLE_STRAIGHT;
+      break;
+    case 'B':
+      car.targetSpeed = -DRIVE_SPEED;
+      car.targetSteering = ANGLE_STRAIGHT;
+      break;
+    case 'L':
+      car.targetSpeed = TURN_SPEED;
+      car.targetSteering = ANGLE_LEFT;
+      break;
+    case 'R':
+      car.targetSpeed = TURN_SPEED;
+      car.targetSteering = ANGLE_RIGHT;
+      break;
+    case 'S':
+      car.targetSpeed = 0;
+      car.targetSteering = ANGLE_STRAIGHT;
+      break;
+  }
+}
+
+// ===== UI Updates =====
+function updateUI() {
+  // Telemetry
+  const cmdNames = { F: 'FWD', B: 'REV', L: 'LEFT', R: 'RIGHT', S: 'STOP' };
+  const cmdColors = { F: 'green', B: 'orange', L: 'blue', R: 'blue', S: 'red' };
+
+  document.getElementById('telemCmdVal').textContent = cmdNames[car.command] || '—';
+  document.getElementById('telemCmdVal').className = `telem-value ${cmdColors[car.command] || ''}`;
+
+  const absSpeed = Math.abs(car.speed).toFixed(1);
+  document.getElementById('telemSpeedVal').textContent = absSpeed;
+  document.getElementById('telemSpeedVal').className = `telem-value ${car.isMoving ? 'green' : ''}`;
+
+  document.getElementById('telemSteerVal').textContent = `${Math.round(car.steeringAngle)}°`;
+
+  const m1Status = car.isMoving ? (car.speed > 0 ? 'FWD' : 'REV') : 'OFF';
+  const m2Status = m1Status;
+  document.getElementById('telemM1Val').textContent = m1Status;
+  document.getElementById('telemM1Val').className = `telem-value ${car.isMoving ? 'green' : 'red'}`;
+  document.getElementById('telemM2Val').textContent = m2Status;
+  document.getElementById('telemM2Val').className = `telem-value ${car.isMoving ? 'green' : 'red'}`;
+
+  // Highlight active telem card
+  document.getElementById('telemCmd').classList.toggle('highlight', car.command !== 'S');
+
+  // Status pill
+  const pill = document.getElementById('statusPill');
+  const statusText = document.getElementById('statusText');
+  if (car.isMoving) {
+    pill.className = 'status-pill active';
+    statusText.textContent = 'Active';
+  } else {
+    pill.className = 'status-pill stopped';
+    statusText.textContent = 'Stopped';
+  }
+
+  // Timeout bar
+  if (car.command !== 'S') {
+    const elapsed = Date.now() - car.lastCommandTime;
+    const remaining = Math.max(0, TIMEOUT_MS - elapsed);
+    const pct = (remaining / TIMEOUT_MS) * 100;
+    const bar = document.getElementById('timeoutBar');
+    bar.style.width = pct + '%';
+    bar.style.background = pct > 40 ? 'var(--accent-green)' : pct > 15 ? 'var(--accent-orange)' : 'var(--accent-red)';
+    document.getElementById('timeoutDisplay').textContent = (remaining / 1000).toFixed(1) + 's';
+    document.getElementById('timeoutDisplay').style.color =
+      pct > 40 ? 'var(--accent-green)' : pct > 15 ? 'var(--accent-orange)' : 'var(--accent-red)';
+  } else {
+    document.getElementById('timeoutBar').style.width = '100%';
+    document.getElementById('timeoutBar').style.background = 'var(--text-muted)';
+    document.getElementById('timeoutDisplay').textContent = '—';
+    document.getElementById('timeoutDisplay').style.color = 'var(--text-muted)';
+  }
+}
+
+// ===== Feed =====
+function addFeedEntry(letter, confidence, accepted, isValid) {
+  const feed = document.getElementById('cmdFeed');
+  const empty = document.getElementById('feedEmpty');
+  if (empty) empty.remove();
+
+  const entry = document.createElement('div');
+  entry.className = `cmd-entry ${accepted ? 'accepted' : 'rejected'}`;
+
+  const cmdMap = { F: 'Forward', B: 'Back', L: 'Left', R: 'Right', S: 'Stop' };
+  const action = cmdMap[letter] || letter;
+  let reason = '';
+  if (!isValid) reason = 'unmapped';
+  else if (!accepted) reason = `< ${CONFIDENCE_THRESHOLD}%`;
+
+  entry.innerHTML = `
+    <div class="cmd-letter">${letter}</div>
+    <div class="cmd-conf">${action} — ${confidence.toFixed(1)}%</div>
+    <div class="cmd-status ${accepted ? 'pass' : 'fail'}">${accepted ? '✓ EXEC' : `✗ ${reason}`}</div>
+  `;
+
+  feed.insertBefore(entry, feed.firstChild);
+
+  // Limit entries
+  while (feed.children.length > 100) {
+    feed.removeChild(feed.lastChild);
+  }
+}
+
+function clearFeed() {
+  const feed = document.getElementById('cmdFeed');
+  feed.innerHTML = `<div class="cmd-feed-empty" id="feedEmpty">
+    No commands received yet.<br>Press a key or replay logs to start.
+  </div>`;
+}
+
+// ===== Keyboard Input =====
+const activeKeys = new Set();
+
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
+
+  const key = e.key.toUpperCase();
+  if (['F', 'B', 'L', 'R', 'S'].includes(key)) {
+    processCommand(key, 100);
+    highlightKey(key);
+  }
+  if (key === 'C') {
+    car.trail = [];
+    highlightKey('C');
+  }
+});
+
+function highlightKey(key) {
+  const el = document.getElementById('key' + key);
+  if (el) {
+    el.classList.add('active-key');
+    setTimeout(() => el.classList.remove('active-key'), 200);
+  }
+}
+
+// ===== Mode switching =====
+function setMode(mode) {
+  document.querySelectorAll('.mode-tab').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.mode === mode);
+  });
+  document.getElementById('keyboardMode').style.display = mode === 'keyboard' ? '' : 'none';
+  document.getElementById('replayMode').style.display = mode === 'replay' ? '' : 'none';
+}
+
+// ===== Log Replay =====
+const LOG_RE = /\[(\d+)\s*ms\]\s*letter=([A-Z])\s+confidence=([\d.]+)%/;
+let replayTimer = null;
+let replayEntries = [];
+let replayIndex = 0;
+
+function parseLogLines(text) {
+  const lines = text.split('\n');
+  const entries = [];
+  for (const line of lines) {
+    const m = line.match(LOG_RE);
+    if (m) {
+      entries.push({
+        timestamp: parseInt(m[1]),
+        letter: m[2],
+        confidence: parseFloat(m[3]),
+      });
+    }
+  }
+  return entries;
+}
+
+function startReplay() {
+  const text = document.getElementById('logInput').value;
+  replayEntries = parseLogLines(text);
+  if (replayEntries.length === 0) {
+    alert('No valid log lines found. Paste lines in the format:\n[12345 ms] letter=A  confidence=97.3%');
+    return;
+  }
+
+  replayIndex = 0;
+  document.getElementById('btnReplay').disabled = true;
+  document.getElementById('btnStopReplay').disabled = false;
+
+  replayNext();
+}
+
+function replayNext() {
+  if (replayIndex >= replayEntries.length) {
+    stopReplay();
+    return;
+  }
+
+  const entry = replayEntries[replayIndex];
+  processCommand(entry.letter, entry.confidence);
+  replayIndex++;
+
+  if (replayIndex < replayEntries.length) {
+    // Use the time difference between this entry and the next
+    const dt = replayEntries[replayIndex].timestamp - entry.timestamp;
+    const delay = Math.max(100, Math.min(dt, 5000)); // Clamp between 100ms and 5s
+    replayTimer = setTimeout(replayNext, delay);
+  } else {
+    // Last entry — wait a moment then stop
+    replayTimer = setTimeout(stopReplay, 1000);
+  }
+}
+
+function stopReplay() {
+  if (replayTimer) {
+    clearTimeout(replayTimer);
+    replayTimer = null;
+  }
+  replayEntries = [];
+  replayIndex = 0;
+  document.getElementById('btnReplay').disabled = false;
+  document.getElementById('btnStopReplay').disabled = true;
+}
+
+function loadSampleLogs() {
+  document.getElementById('logInput').value =
+`[100000 ms] letter=A  confidence=98.8%
+[101231 ms] letter=F  confidence=59.4%
+[102462 ms] letter=F  confidence=87.9%
+[103693 ms] letter=F  confidence=90.5%
+[104924 ms] letter=F  confidence=86.0%
+[106155 ms] letter=F  confidence=91.2%
+[107386 ms] letter=L  confidence=84.8%
+[108617 ms] letter=L  confidence=82.1%
+[109848 ms] letter=L  confidence=63.7%
+[111079 ms] letter=F  confidence=86.0%
+[112310 ms] letter=F  confidence=93.8%
+[113541 ms] letter=R  confidence=82.2%
+[114772 ms] letter=R  confidence=88.2%
+[116003 ms] letter=R  confidence=71.6%
+[117234 ms] letter=F  confidence=87.3%
+[118465 ms] letter=F  confidence=92.0%
+[119696 ms] letter=S  confidence=85.3%
+[120927 ms] letter=B  confidence=82.5%
+[122158 ms] letter=B  confidence=89.2%
+[123389 ms] letter=S  confidence=91.0%`;
+}
+
+// ===== Settings =====
+function updateThreshold() {
+  CONFIDENCE_THRESHOLD = parseFloat(document.getElementById('thresholdInput').value) || 80;
+}
+
+function updateTimeout() {
+  TIMEOUT_MS = (parseFloat(document.getElementById('timeoutInput').value) || 3) * 1000;
+}
+</script>
+
+</body>
+</html>
