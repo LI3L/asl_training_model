@@ -86,6 +86,39 @@ in over the Type-C connector as:
 [12345 ms] letter=A confidence=97.32%
 ```
 
+## If predictions are wrong on-device but correct in `test_model.py`
+
+This means the model itself is fine — the problem is that what the ESP32
+camera feeds it doesn't look like what `test_model.py` feeds it. Unlike
+`test_model.py`'s "Model Input (28x28 preprocessed)" debug window, you can't
+see what the ESP32 camera is capturing... unless you turn on the built-in
+ASCII-art debug view.
+
+`ASL_Detector.ino` has `#define DEBUG_PRINT_INPUT 1` near the top (on by
+default). With it on, every prediction is preceded by a 28x28 ASCII-art
+rendering of exactly what the model received. Open the Serial Monitor and
+hold up a sign — you should see a rough hand shape rendered in `.:-=+*#@`
+characters. Two things to check against it:
+
+1. **Is the hand shape recognizable, with visible finger gaps, and does it
+   fill most of the frame?** `test_model.py` uses a guide box + skin-tone
+   crop to make the hand fill most of the model's input, matching the
+   training data's tight framing — the ESP32 sketch has no equivalent crop
+   (too expensive for its compute budget), so you have to do this manually:
+   hold your hand roughly a hand's length back (~15-25cm), not pressed up
+   against the lens. If the ASCII frame is a smooth, low-contrast blob using
+   only mid-range characters (`-=+`) with no dark or bright ends and no
+   visible gaps between fingers, that's the sensor's close-focus blur zone —
+   back off until edges sharpen up.
+2. **Is it mirrored or upside-down** compared to what you're actually
+   holding up? Camera sensor mounting orientation varies, and a flipped
+   input will confidently predict the wrong letter even though the model is
+   working correctly. If so, set `FLIP_VERTICAL` and/or `MIRROR_HORIZONTAL`
+   (also near the top of the file) to `true` and re-flash.
+
+Once predictions look right, you can set `DEBUG_PRINT_INPUT` to `0` to go
+back to a clean one-line-per-prediction log.
+
 ## Notes
 
 - **Logs travel over the same Type-C connector used to flash the board.**
