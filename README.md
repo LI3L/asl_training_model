@@ -14,6 +14,7 @@ asl_training_model/
 │   ├── train_model.py        # Trains/fine-tunes the .keras model
 │   ├── convert_model.py      # Converts .keras -> full int8 .tflite -> model.h
 │   ├── test_model.py         # Live webcam / static-image OpenCV testing
+│   ├── run_model.py          # Live webcam + ESP32-format logs; can drive the Mega directly (no ESP32 needed)
 │   ├── capture_data.py       # Collect labeled real-hand samples from your webcam
 │   ├── capture_backgrounds.py# Collect background-only photos (no hand) for augmentation
 │   ├── augment_backgrounds.py# Composite real-hand samples onto varied backgrounds
@@ -119,6 +120,25 @@ docker compose run --rm pipeline python src/test_model.py webcam
 
 In webcam mode, two windows appear: the live feed, and **"Model Input (28x28 preprocessed)"** showing exactly what the model sees — useful for sanity-checking the crop. Press `s` at any time to save the current raw ROI + model input to `output/debug_frames/` for later inspection; press `q` to quit.
 
+### Step 3b: Run as a Stand-In for the ESP32 (`run_model.py`)
+
+`run_model.py` shows the same live-webcam windows as `test_model.py`, but also mirrors what the ESP32-S3 Sense actually does on-device: it applies the same prediction smoothing (5-frame majority vote) and prints predictions to stdout in the exact same log format the firmware uses:
+
+```text
+[105167 ms] letter=A  confidence=98.8%
+[106398 ms] ...
+```
+
+```bash
+# TFLite model, logs to stdout only
+docker compose run --rm pipeline python src/run_model.py webcam
+
+# Keras model instead
+docker compose run --rm pipeline python src/run_model.py webcam --keras
+```
+
+Useful on its own for testing the model/UI without touching hardware, and it doubles as the ESP32 replacement for [ASL Car Control](#-asl-car-control) below — see **Connection Option 3**.
+
 ---
 
 ## 🛠️ Deploying to the ESP32
@@ -152,10 +172,10 @@ The camera recognizes ASL hand signs and sends them to an **Arduino Mega** that 
 | ASL Letter | Car Action | Description |
 |---|---|---|
 | **W** | Forward | Drive straight with encoder sync |
-| **C** | Backward | Reverse straight |
-| **L** | Left | Turn left while driving forward |
-| **R** | Right | Turn right while driving forward |
-| **S** | Stop | Stop all motors |
+| **B** | Backward | Reverse straight |
+| **C** | Left | Turn left while driving forward |
+| **A** | Right | Turn right while driving forward |
+| **O** | Stop | Stop all motors |
 
 All other recognized letters are ignored. Only predictions with **≥ 80% confidence** are acted on. The car **auto-stops after 3 seconds** of no valid command (safety timeout).
 
@@ -230,16 +250,45 @@ Both boards stay plugged into your computer via USB. A Python script reads the E
 
    ```text
         TIME  LETTER     CONF  ACTION
-      105167       A    98.8%  skip (low confidence)
+      105167       D    98.8%  skip (low confidence)
       106398       W    89.4%  SEND → W
       107629       W    92.1%  SEND → W
    ```
-   (The letter `A` is skipped because it's not a car command — only W/C/L/R/S are forwarded.)
+   (The letter `D` is skipped because it's not a car command — only W/B/C/A/O are forwarded.)
 
 5. To just monitor the camera without sending to the car:
    ```bash
    python src/serial_bridge.py --esp32 COM3 --dry-run
    ```
+
+### Connection Option 3: No ESP32 — run the model on your computer
+
+Don't have the ESP32-S3 flashed/wired yet, or want to iterate on the model without redeploying it? `src/run_model.py` runs inference on your laptop webcam and drives the Mega directly over USB, combining what the ESP32 firmware and `serial_bridge.py` do into one process — the Mega can't tell the difference.
+
+**Steps:**
+
+1. Flash just the **Arduino Mega** (see step 3 in Option 1) and plug it into your computer via USB.
+
+2. Find its serial device:
+   ```bash
+   ls /dev/ttyACM* /dev/ttyUSB*
+   ```
+
+3. Expose that device to the Docker container — uncomment and adjust the path in `docker-compose.yml`:
+   ```yaml
+   devices:
+     - /dev/video0:/dev/video0
+     - /dev/ttyACM0:/dev/ttyACM0   # <- match what `ls` showed you
+   ```
+   Then rebuild once (`pyserial` was added to the image): `docker compose build`
+
+4. Run it:
+   ```bash
+   docker compose run --rm pipeline python src/run_model.py webcam --keras --car /dev/ttyACM0
+   ```
+   *(Drop `--keras` to use the converted `.tflite` model instead; add `--threshold 80` to change the car's confidence gate from the 80% default.)*
+
+   The live feed and model-input windows appear just like `test_model.py`/Step 3b, ESP32-format log lines print to the terminal, and whenever the smoothed prediction is one of W/B/C/A/O at ≥ 80% confidence, that letter is sent straight to the Mega — same effect as Option 2, no ESP32 required.
 
 ### Local simulator (no hardware needed)
 

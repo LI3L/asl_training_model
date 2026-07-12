@@ -489,20 +489,20 @@
                 <div class="key-badge">W</div>
                 <div class="key-action"><span class="emoji">⬆️</span> Forward</div>
               </div>
-              <div class="key-item" id="keyC">
-                <div class="key-badge">C</div>
+              <div class="key-item" id="keyB">
+                <div class="key-badge">B</div>
                 <div class="key-action"><span class="emoji">⬇️</span> Backward</div>
               </div>
-              <div class="key-item" id="keyS">
-                <div class="key-badge">S</div>
+              <div class="key-item" id="keyO">
+                <div class="key-badge">O</div>
                 <div class="key-action"><span class="emoji">⏹️</span> Stop</div>
               </div>
-              <div class="key-item" id="keyL">
-                <div class="key-badge">L</div>
+              <div class="key-item" id="keyC">
+                <div class="key-badge">C</div>
                 <div class="key-action"><span class="emoji">⬅️</span> Left</div>
               </div>
-              <div class="key-item" id="keyR">
-                <div class="key-badge">R</div>
+              <div class="key-item" id="keyA">
+                <div class="key-badge">A</div>
                 <div class="key-action"><span class="emoji">➡️</span> Right</div>
               </div>
               <div class="key-item" id="keyX">
@@ -597,7 +597,7 @@ const car = {
   targetSteering: 50,
   speed: 0,
   targetSpeed: 0,
-  command: 'S',
+  command: 'O',
   lastCommandTime: 0,
   trail: [],
   isMoving: false,
@@ -734,7 +734,7 @@ function drawCar() {
   }
 
   // Tail lights
-  const tailColor = car.command === 'S' ? '#ff3344' : '#661122';
+  const tailColor = car.command === 'O' ? '#ff3344' : '#661122';
   ctx.fillStyle = tailColor;
   ctx.beginPath();
   ctx.arc(-W / 2 + 4, L / 2 - 3, 2, 0, Math.PI * 2);
@@ -796,8 +796,8 @@ function drawCar() {
 
 function drawCommandOverlay() {
   // Show current command in top-left of canvas
-  const cmdNames = { W: 'FORWARD', C: 'BACKWARD', L: 'LEFT', R: 'RIGHT', S: 'STOPPED' };
-  const cmdColors = { W: '#22c97a', C: '#ff8844', L: '#4f8cff', R: '#aa66ff', S: '#ff4466' };
+  const cmdNames = { W: 'FORWARD', B: 'BACKWARD', C: 'LEFT', A: 'RIGHT', O: 'STOPPED' };
+  const cmdColors = { W: '#22c97a', B: '#ff8844', C: '#4f8cff', A: '#aa66ff', O: '#ff4466' };
 
   const name = cmdNames[car.command] || 'UNKNOWN';
   const color = cmdColors[car.command] || '#888';
@@ -830,8 +830,8 @@ function updateCar(dt) {
   }
 
   // Check timeout
-  if (car.command !== 'S' && (Date.now() - car.lastCommandTime > TIMEOUT_MS)) {
-    processCommand('S', 100, true); // auto-stop
+  if (car.command !== 'O' && (Date.now() - car.lastCommandTime > TIMEOUT_MS)) {
+    processCommand('O', 100, true); // auto-stop
   }
 
   // Movement
@@ -878,7 +878,7 @@ animFrame = requestAnimationFrame(animate);
 
 // ===== Command Processing =====
 function processCommand(letter, confidence, isTimeout = false) {
-  const isValid = letter === 'W' || letter === 'C' || letter === 'L' || letter === 'R' || letter === 'S';
+  const isValid = letter === 'W' || letter === 'B' || letter === 'C' || letter === 'A' || letter === 'O';
   const passesThreshold = confidence >= CONFIDENCE_THRESHOLD;
   const accepted = isValid && (passesThreshold || isTimeout);
 
@@ -897,19 +897,19 @@ function processCommand(letter, confidence, isTimeout = false) {
       car.targetSpeed = DRIVE_SPEED;
       car.targetSteering = ANGLE_STRAIGHT;
       break;
-    case 'C':
+    case 'B':
       car.targetSpeed = -DRIVE_SPEED;
       car.targetSteering = ANGLE_STRAIGHT;
       break;
-    case 'L':
+    case 'C':
       car.targetSpeed = TURN_SPEED;
       car.targetSteering = ANGLE_LEFT;
       break;
-    case 'R':
+    case 'A':
       car.targetSpeed = TURN_SPEED;
       car.targetSteering = ANGLE_RIGHT;
       break;
-    case 'S':
+    case 'O':
       car.targetSpeed = 0;
       car.targetSteering = ANGLE_STRAIGHT;
       break;
@@ -919,8 +919,8 @@ function processCommand(letter, confidence, isTimeout = false) {
 // ===== UI Updates =====
 function updateUI() {
   // Telemetry
-  const cmdNames = { W: 'FWD', C: 'REV', L: 'LEFT', R: 'RIGHT', S: 'STOP' };
-  const cmdColors = { W: 'green', C: 'orange', L: 'blue', R: 'blue', S: 'red' };
+  const cmdNames = { W: 'FWD', B: 'REV', C: 'LEFT', A: 'RIGHT', O: 'STOP' };
+  const cmdColors = { W: 'green', B: 'orange', C: 'blue', A: 'blue', O: 'red' };
 
   document.getElementById('telemCmdVal').textContent = cmdNames[car.command] || '—';
   document.getElementById('telemCmdVal').className = `telem-value ${cmdColors[car.command] || ''}`;
@@ -939,7 +939,7 @@ function updateUI() {
   document.getElementById('telemM2Val').className = `telem-value ${car.isMoving ? 'green' : 'red'}`;
 
   // Highlight active telem card
-  document.getElementById('telemCmd').classList.toggle('highlight', car.command !== 'S');
+  document.getElementById('telemCmd').classList.toggle('highlight', car.command !== 'O');
 
   // Status pill
   const pill = document.getElementById('statusPill');
@@ -953,7 +953,7 @@ function updateUI() {
   }
 
   // Timeout bar
-  if (car.command !== 'S') {
+  if (car.command !== 'O') {
     const elapsed = Date.now() - car.lastCommandTime;
     const remaining = Math.max(0, TIMEOUT_MS - elapsed);
     const pct = (remaining / TIMEOUT_MS) * 100;
@@ -980,7 +980,7 @@ function addFeedEntry(letter, confidence, accepted, isValid) {
   const entry = document.createElement('div');
   entry.className = `cmd-entry ${accepted ? 'accepted' : 'rejected'}`;
 
-  const cmdMap = { W: 'Forward', C: 'Back', L: 'Left', R: 'Right', S: 'Stop' };
+  const cmdMap = { W: 'Forward', B: 'Back', C: 'Left', A: 'Right', O: 'Stop' };
   const action = cmdMap[letter] || letter;
   let reason = '';
   if (!isValid) reason = 'unmapped';
@@ -1014,7 +1014,7 @@ document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
 
   const key = e.key.toUpperCase();
-  if (['W', 'C', 'L', 'R', 'S'].includes(key)) {
+  if (['W', 'B', 'C', 'A', 'O'].includes(key)) {
     processCommand(key, 100);
     highlightKey(key);
   }
@@ -1223,26 +1223,26 @@ function stopReplay() {
 
 function loadSampleLogs() {
   document.getElementById('logInput').value =
-`[100000 ms] letter=A  confidence=98.8%
+`[100000 ms] letter=D  confidence=98.8%
 [101231 ms] letter=W  confidence=59.4%
 [102462 ms] letter=W  confidence=87.9%
 [103693 ms] letter=W  confidence=90.5%
 [104924 ms] letter=W  confidence=86.0%
 [106155 ms] letter=W  confidence=91.2%
-[107386 ms] letter=L  confidence=84.8%
-[108617 ms] letter=L  confidence=82.1%
-[109848 ms] letter=L  confidence=63.7%
+[107386 ms] letter=C  confidence=84.8%
+[108617 ms] letter=C  confidence=82.1%
+[109848 ms] letter=C  confidence=63.7%
 [111079 ms] letter=W  confidence=86.0%
 [112310 ms] letter=W  confidence=93.8%
-[113541 ms] letter=R  confidence=82.2%
-[114772 ms] letter=R  confidence=88.2%
-[116003 ms] letter=R  confidence=71.6%
+[113541 ms] letter=A  confidence=82.2%
+[114772 ms] letter=A  confidence=88.2%
+[116003 ms] letter=A  confidence=71.6%
 [117234 ms] letter=W  confidence=87.3%
 [118465 ms] letter=W  confidence=92.0%
-[119696 ms] letter=S  confidence=85.3%
-[120927 ms] letter=C  confidence=82.5%
-[122158 ms] letter=C  confidence=89.2%
-[123389 ms] letter=S  confidence=91.0%`;
+[119696 ms] letter=O  confidence=85.3%
+[120927 ms] letter=B  confidence=82.5%
+[122158 ms] letter=B  confidence=89.2%
+[123389 ms] letter=O  confidence=91.0%`;
 }
 
 // ===== Settings =====

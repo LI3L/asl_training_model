@@ -13,7 +13,7 @@ Usage:
     python run_model.py                       # tflite model, logs to stdout only
     python run_model.py --keras               # use the .keras model instead
     python run_model.py --car /dev/ttyACM0     # also drive the Mega: sends a
-                                               # single letter (W/C/L/R/S) at
+                                               # single letter (W/B/C/A/O) at
                                                # 9600 baud whenever the stable
                                                # prediction is a car command
                                                # above --threshold confidence
@@ -45,7 +45,7 @@ SMOOTH_MAJORITY = 3
 # Matches CAR_CONFIDENCE_THRESHOLD and isCarCommand in ASL_Detector.ino, and
 # the FORWARD/BACKWARD/LEFT/RIGHT/STOP letters ASL_Car_Controller.ino acts on.
 CAR_CONFIDENCE_THRESHOLD = 80.0
-CAR_COMMAND_LETTERS = {"W", "C", "L", "R", "S"}
+CAR_COMMAND_LETTERS = {"W", "B", "C", "A", "O"}
 CAR_BAUD = 9600
 
 
@@ -211,7 +211,7 @@ if __name__ == "__main__":
         # Wait for the Mega to reset after the serial connection opens,
         # same as serial_bridge.py does.
         time.sleep(2)
-        print(f"  Connected. Forwarding W/C/L/R/S commands >= {CAR_CONFIDENCE_THRESHOLD}% confidence.")
+        print(f"  Connected. Forwarding W/B/C/A/O commands >= {CAR_CONFIDENCE_THRESHOLD}% confidence.")
 
     try:
         run(model, is_tflite, car_port)

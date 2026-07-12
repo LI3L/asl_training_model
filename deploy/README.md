@@ -9,7 +9,7 @@ in/out), and logs each prediction over Serial as:
 [12345 ms] letter=A  confidence=97.3%
 ```
 
-For the five car-command letters (W/C/L/R/S) at ≥80% confidence, it also
+For the five car-command letters (W/B/C/A/O) at ≥80% confidence, it also
 forwards just the letter over `Serial1` (GPIO2) to drive an Arduino Mega car
 controller — see the main [README](../README.md#-asl-car-control) for the
 full car wiring, the USB-bridge alternative, and the HTML simulator.

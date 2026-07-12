@@ -7,7 +7,7 @@
 //
 // Letter → Action mapping (must match FORWARD/BACKWARD/LEFT/RIGHT/STOP below,
 // and the isCarCommand letters in the ESP32's ASL_Detector.ino):
-//   W = Forward    C = Backward    L = Left    R = Right    S = Stop
+//   W = Forward    B = Backward    C = Left    A = Right    O = Stop
 //
 // The car auto-stops after 3 seconds of no valid command (safety timeout).
 
@@ -50,7 +50,7 @@ const int TURN_SPEED    = 150;  // PWM speed while turning
 const unsigned long TIMEOUT_MS = 3000;
 
 // --- State tracking ---
-char currentCommand  = 'S';             // Current active command (S = stopped)
+char currentCommand  = 'O';             // Current active command (O = stopped)
 unsigned long lastCommandTime = 0;      // millis() when last valid command arrived
 int currentSteeringAngle = angleStraight;
 
@@ -59,10 +59,10 @@ int targetSteeringAngle = angleStraight;
 
 // --- const of car control ---
 const char FORWARD = 'W';
-const char BACKWARD = 'C';
-const char LEFT = 'L';
-const char RIGHT = 'R';
-const char STOP = 'S';
+const char BACKWARD = 'B';
+const char LEFT = 'C';
+const char RIGHT = 'A';
+const char STOP = 'O';
 
 void setup() {
   // USB Serial for debug output (and for receiving commands via USB bridge)
@@ -97,7 +97,7 @@ void setup() {
   stopMotors();
 
   Serial.println("ASL Car Controller Ready!");
-  Serial.println("Commands: W=Forward C=Back L=Left R=Right S=Stop");
+  Serial.println("Commands: W=Forward B=Back C=Left A=Right O=Stop");
   Serial.println("Waiting for commands from ESP32...");
 
   lastCommandTime = millis();
@@ -140,9 +140,9 @@ void loop() {
   }
 
   // --- 3. Check for timeout (3 seconds of no commands → auto-stop) ---
-  if (currentCommand != 'S' && (millis() - lastCommandTime > TIMEOUT_MS)) {
+  if (currentCommand != 'O' && (millis() - lastCommandTime > TIMEOUT_MS)) {
     Serial.println(">> TIMEOUT: No command for 3s — stopping.");
-    currentCommand = 'S';
+    currentCommand = 'O';
   }
 
   // --- 4. Execute the current command ---
