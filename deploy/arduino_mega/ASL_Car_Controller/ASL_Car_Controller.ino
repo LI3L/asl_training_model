@@ -47,7 +47,7 @@ const int TURN_SPEED    = 150;  // PWM speed while turning
 
 // --- Timeout ---
 // If no valid command is received for this many milliseconds, stop the car.
-const unsigned long TIMEOUT_MS = 3000;
+const unsigned long TIMEOUT_MS = 1500;
 
 // --- State tracking ---
 char currentCommand  = 'O';             // Current active command (O = stopped)
@@ -140,9 +140,9 @@ void loop() {
   }
 
   // --- 3. Check for timeout (3 seconds of no commands → auto-stop) ---
-  if (currentCommand != 'O' && (millis() - lastCommandTime > TIMEOUT_MS)) {
+  if (currentCommand != STOP && (millis() - lastCommandTime > TIMEOUT_MS)) {
     Serial.println(">> TIMEOUT: No command for 3s — stopping.");
-    currentCommand = 'O';
+    currentCommand = STOP;
   }
 
   // --- 4. Execute the current command ---
