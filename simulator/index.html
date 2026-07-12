@@ -478,18 +478,19 @@
           <div class="mode-tabs">
             <button class="mode-tab active" data-mode="keyboard" onclick="setMode('keyboard')">Keyboard</button>
             <button class="mode-tab" data-mode="replay" onclick="setMode('replay')">Log Replay</button>
+            <button class="mode-tab" data-mode="live" onclick="setMode('live')">Live ESP32</button>
           </div>
         </div>
         <div class="panel-card-body">
           <!-- Keyboard mode -->
           <div id="keyboardMode">
             <div class="key-guide">
-              <div class="key-item" id="keyF">
-                <div class="key-badge">F</div>
+              <div class="key-item" id="keyW">
+                <div class="key-badge">W</div>
                 <div class="key-action"><span class="emoji">⬆️</span> Forward</div>
               </div>
-              <div class="key-item" id="keyB">
-                <div class="key-badge">B</div>
+              <div class="key-item" id="keyC">
+                <div class="key-badge">C</div>
                 <div class="key-action"><span class="emoji">⬇️</span> Backward</div>
               </div>
               <div class="key-item" id="keyS">
@@ -504,8 +505,8 @@
                 <div class="key-badge">R</div>
                 <div class="key-action"><span class="emoji">➡️</span> Right</div>
               </div>
-              <div class="key-item" id="keyC">
-                <div class="key-badge">C</div>
+              <div class="key-item" id="keyX">
+                <div class="key-badge">X</div>
                 <div class="key-action"><span class="emoji">🔄</span> Clear trail</div>
               </div>
             </div>
@@ -515,14 +516,30 @@
           <div id="replayMode" style="display:none">
             <textarea id="logInput" class="log-textarea" placeholder="Paste ESP32 logs here, e.g.:
 [105167 ms] letter=A  confidence=98.8%
-[106398 ms] letter=F  confidence=89.4%
-[107629 ms] letter=F  confidence=92.1%
+[106398 ms] letter=W  confidence=89.4%
+[107629 ms] letter=W  confidence=92.1%
 ..."></textarea>
             <div class="replay-controls">
               <button class="btn primary" id="btnReplay" onclick="startReplay()">▶ Replay</button>
               <button class="btn danger" id="btnStopReplay" onclick="stopReplay()" disabled>■ Stop</button>
               <button class="btn" onclick="loadSampleLogs()">📋 Sample</button>
             </div>
+          </div>
+
+          <!-- Live ESP32 mode -->
+          <div id="liveMode" style="display:none">
+            <div id="liveUnsupported" style="display:none;font-size:12px;color:var(--accent-red);margin-bottom:10px;">
+              This browser doesn't support the Web Serial API. Use Chrome or Edge (desktop) to connect the ESP32-S3 directly.
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span id="liveStatusDot" style="width:8px;height:8px;border-radius:50%;background:var(--accent-red);flex-shrink:0;"></span>
+              <span id="liveStatusText" style="font-size:12px;color:var(--text-secondary);">Not connected</span>
+            </div>
+            <div class="replay-controls">
+              <button class="btn primary" id="btnLiveConnect" onclick="connectSerial()">🔌 Connect ESP32-S3</button>
+              <button class="btn danger" id="btnLiveDisconnect" onclick="disconnectSerial()" disabled>■ Disconnect</button>
+            </div>
+            <textarea id="liveLog" class="log-textarea" readonly placeholder="Live serial output from the ESP32-S3 will appear here once connected (115200 baud)..."></textarea>
           </div>
 
           <!-- Settings -->
@@ -779,8 +796,8 @@ function drawCar() {
 
 function drawCommandOverlay() {
   // Show current command in top-left of canvas
-  const cmdNames = { F: 'FORWARD', B: 'BACKWARD', L: 'LEFT', R: 'RIGHT', S: 'STOPPED' };
-  const cmdColors = { F: '#22c97a', B: '#ff8844', L: '#4f8cff', R: '#aa66ff', S: '#ff4466' };
+  const cmdNames = { W: 'FORWARD', C: 'BACKWARD', L: 'LEFT', R: 'RIGHT', S: 'STOPPED' };
+  const cmdColors = { W: '#22c97a', C: '#ff8844', L: '#4f8cff', R: '#aa66ff', S: '#ff4466' };
 
   const name = cmdNames[car.command] || 'UNKNOWN';
   const color = cmdColors[car.command] || '#888';
@@ -861,7 +878,7 @@ animFrame = requestAnimationFrame(animate);
 
 // ===== Command Processing =====
 function processCommand(letter, confidence, isTimeout = false) {
-  const isValid = letter === 'F' || letter === 'B' || letter === 'L' || letter === 'R' || letter === 'S';
+  const isValid = letter === 'W' || letter === 'C' || letter === 'L' || letter === 'R' || letter === 'S';
   const passesThreshold = confidence >= CONFIDENCE_THRESHOLD;
   const accepted = isValid && (passesThreshold || isTimeout);
 
@@ -876,11 +893,11 @@ function processCommand(letter, confidence, isTimeout = false) {
   car.lastCommandTime = Date.now();
 
   switch (letter) {
-    case 'F':
+    case 'W':
       car.targetSpeed = DRIVE_SPEED;
       car.targetSteering = ANGLE_STRAIGHT;
       break;
-    case 'B':
+    case 'C':
       car.targetSpeed = -DRIVE_SPEED;
       car.targetSteering = ANGLE_STRAIGHT;
       break;
@@ -902,8 +919,8 @@ function processCommand(letter, confidence, isTimeout = false) {
 // ===== UI Updates =====
 function updateUI() {
   // Telemetry
-  const cmdNames = { F: 'FWD', B: 'REV', L: 'LEFT', R: 'RIGHT', S: 'STOP' };
-  const cmdColors = { F: 'green', B: 'orange', L: 'blue', R: 'blue', S: 'red' };
+  const cmdNames = { W: 'FWD', C: 'REV', L: 'LEFT', R: 'RIGHT', S: 'STOP' };
+  const cmdColors = { W: 'green', C: 'orange', L: 'blue', R: 'blue', S: 'red' };
 
   document.getElementById('telemCmdVal').textContent = cmdNames[car.command] || '—';
   document.getElementById('telemCmdVal').className = `telem-value ${cmdColors[car.command] || ''}`;
@@ -963,7 +980,7 @@ function addFeedEntry(letter, confidence, accepted, isValid) {
   const entry = document.createElement('div');
   entry.className = `cmd-entry ${accepted ? 'accepted' : 'rejected'}`;
 
-  const cmdMap = { F: 'Forward', B: 'Back', L: 'Left', R: 'Right', S: 'Stop' };
+  const cmdMap = { W: 'Forward', C: 'Back', L: 'Left', R: 'Right', S: 'Stop' };
   const action = cmdMap[letter] || letter;
   let reason = '';
   if (!isValid) reason = 'unmapped';
@@ -997,13 +1014,13 @@ document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
 
   const key = e.key.toUpperCase();
-  if (['F', 'B', 'L', 'R', 'S'].includes(key)) {
+  if (['W', 'C', 'L', 'R', 'S'].includes(key)) {
     processCommand(key, 100);
     highlightKey(key);
   }
-  if (key === 'C') {
+  if (key === 'X') {
     car.trail = [];
-    highlightKey('C');
+    highlightKey('X');
   }
 });
 
@@ -1022,6 +1039,117 @@ function setMode(mode) {
   });
   document.getElementById('keyboardMode').style.display = mode === 'keyboard' ? '' : 'none';
   document.getElementById('replayMode').style.display = mode === 'replay' ? '' : 'none';
+  document.getElementById('liveMode').style.display = mode === 'live' ? '' : 'none';
+  if (mode === 'live' && !('serial' in navigator)) {
+    document.getElementById('liveUnsupported').style.display = '';
+    document.getElementById('btnLiveConnect').disabled = true;
+  }
+}
+
+// ===== Live ESP32 (Web Serial API) =====
+// Reads the ESP32-S3's own USB Serial log directly in the browser -- same
+// port/baud used by the Arduino IDE Serial Monitor (see deploy/README.md),
+// so close that before connecting here; a serial port can only be held open
+// by one process at a time. Parses the same "[ms] letter=X confidence=Y%"
+// lines as parseLogLines()/serial_bridge.py and drives the car live instead
+// of on a replay schedule.
+const SERIAL_BAUD_RATE = 115200;
+let serialPort = null;
+let serialReader = null;
+let serialKeepReading = false;
+
+function setLiveStatus(connected, message) {
+  const dot = document.getElementById('liveStatusDot');
+  const text = document.getElementById('liveStatusText');
+  dot.style.background = connected ? 'var(--accent-green)' : 'var(--accent-red)';
+  text.textContent = message || (connected ? 'Connected' : 'Not connected');
+  document.getElementById('btnLiveConnect').disabled = connected;
+  document.getElementById('btnLiveDisconnect').disabled = !connected;
+}
+
+function appendLiveLog(line) {
+  const box = document.getElementById('liveLog');
+  box.value += line + '\n';
+  box.scrollTop = box.scrollHeight;
+}
+
+async function connectSerial() {
+  if (!('serial' in navigator)) {
+    alert('Web Serial API not supported in this browser. Use Chrome or Edge on desktop.');
+    return;
+  }
+  try {
+    serialPort = await navigator.serial.requestPort();
+    await serialPort.open({ baudRate: SERIAL_BAUD_RATE });
+  } catch (err) {
+    setLiveStatus(false, 'Connection failed: ' + err.message);
+    serialPort = null;
+    return;
+  }
+
+  setLiveStatus(true);
+  serialKeepReading = true;
+  readSerialLoop();
+}
+
+async function readSerialLoop() {
+  const textDecoder = new TextDecoderStream();
+  const readableClosed = serialPort.readable.pipeTo(textDecoder.writable).catch(() => {});
+  const reader = textDecoder.readable.getReader();
+  serialReader = reader;
+
+  let buffer = '';
+  try {
+    while (serialKeepReading) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+
+      buffer += value;
+      let idx;
+      while ((idx = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, idx).trim();
+        buffer = buffer.slice(idx + 1);
+        if (line) handleSerialLine(line);
+      }
+    }
+  } catch (err) {
+    if (serialKeepReading) setLiveStatus(false, 'Read error: ' + err.message);
+  } finally {
+    reader.releaseLock();
+    await readableClosed;
+  }
+}
+
+function handleSerialLine(line) {
+  appendLiveLog(line);
+  const m = line.match(LOG_RE);
+  if (m) {
+    processCommand(m[2], parseFloat(m[3]));
+  }
+}
+
+async function disconnectSerial() {
+  serialKeepReading = false;
+  if (serialReader) {
+    try { await serialReader.cancel(); } catch (err) {}
+  }
+  if (serialPort) {
+    try { await serialPort.close(); } catch (err) {}
+  }
+  serialPort = null;
+  serialReader = null;
+  setLiveStatus(false);
+}
+
+if ('serial' in navigator) {
+  navigator.serial.addEventListener('disconnect', (event) => {
+    if (event.target === serialPort) {
+      serialKeepReading = false;
+      serialPort = null;
+      setLiveStatus(false, 'Device unplugged');
+    }
+  });
 }
 
 // ===== Log Replay =====
@@ -1096,24 +1224,24 @@ function stopReplay() {
 function loadSampleLogs() {
   document.getElementById('logInput').value =
 `[100000 ms] letter=A  confidence=98.8%
-[101231 ms] letter=F  confidence=59.4%
-[102462 ms] letter=F  confidence=87.9%
-[103693 ms] letter=F  confidence=90.5%
-[104924 ms] letter=F  confidence=86.0%
-[106155 ms] letter=F  confidence=91.2%
+[101231 ms] letter=W  confidence=59.4%
+[102462 ms] letter=W  confidence=87.9%
+[103693 ms] letter=W  confidence=90.5%
+[104924 ms] letter=W  confidence=86.0%
+[106155 ms] letter=W  confidence=91.2%
 [107386 ms] letter=L  confidence=84.8%
 [108617 ms] letter=L  confidence=82.1%
 [109848 ms] letter=L  confidence=63.7%
-[111079 ms] letter=F  confidence=86.0%
-[112310 ms] letter=F  confidence=93.8%
+[111079 ms] letter=W  confidence=86.0%
+[112310 ms] letter=W  confidence=93.8%
 [113541 ms] letter=R  confidence=82.2%
 [114772 ms] letter=R  confidence=88.2%
 [116003 ms] letter=R  confidence=71.6%
-[117234 ms] letter=F  confidence=87.3%
-[118465 ms] letter=F  confidence=92.0%
+[117234 ms] letter=W  confidence=87.3%
+[118465 ms] letter=W  confidence=92.0%
 [119696 ms] letter=S  confidence=85.3%
-[120927 ms] letter=B  confidence=82.5%
-[122158 ms] letter=B  confidence=89.2%
+[120927 ms] letter=C  confidence=82.5%
+[122158 ms] letter=C  confidence=89.2%
 [123389 ms] letter=S  confidence=91.0%`;
 }
 

@@ -151,8 +151,8 @@ The camera recognizes ASL hand signs and sends them to an **Arduino Mega** that 
 
 | ASL Letter | Car Action | Description |
 |---|---|---|
-| **F** | Forward | Drive straight with encoder sync |
-| **B** | Backward | Reverse straight |
+| **W** | Forward | Drive straight with encoder sync |
+| **C** | Backward | Reverse straight |
 | **L** | Left | Turn left while driving forward |
 | **R** | Right | Turn right while driving forward |
 | **S** | Stop | Stop all motors |
@@ -165,8 +165,8 @@ The ESP32-S3 Sense logs predictions over USB Serial at ~1.2-second intervals:
 
 ```text
 [105167 ms] letter=A  confidence=98.8%
-[106398 ms] letter=F  confidence=89.4%
-[107629 ms] letter=F  confidence=92.1%
+[106398 ms] letter=W  confidence=89.4%
+[107629 ms] letter=W  confidence=92.1%
 ```
 
 When a prediction passes the 80% confidence threshold, the ESP32 also sends just the letter character over a second serial line (`Serial1` on GPIO2) to the Arduino Mega, which executes the corresponding motor/servo command.
@@ -231,10 +231,10 @@ Both boards stay plugged into your computer via USB. A Python script reads the E
    ```text
         TIME  LETTER     CONF  ACTION
       105167       A    98.8%  skip (low confidence)
-      106398       F    89.4%  SEND → F
-      107629       F    92.1%  SEND → F
+      106398       W    89.4%  SEND → W
+      107629       W    92.1%  SEND → W
    ```
-   (The letter `A` is skipped because it's not a car command — only F/B/L/R/S are forwarded.)
+   (The letter `A` is skipped because it's not a car command — only W/C/L/R/S are forwarded.)
 
 5. To just monitor the camera without sending to the car:
    ```bash
@@ -245,8 +245,9 @@ Both boards stay plugged into your computer via USB. A Python script reads the E
 
 Open `simulator/index.html` in any browser to test the full pipeline visually:
 
-- **Keyboard mode** — press `F`, `B`, `L`, `R`, `S` to drive a virtual car. Press `C` to clear the trail.
+- **Keyboard mode** — press `W`, `C`, `L`, `R`, `S` to drive a virtual car. Press `X` to clear the trail.
 - **Log Replay mode** — paste real ESP32 camera logs and click ▶ Replay. The simulator plays them back at real-time intervals, shows which predictions pass the 80% confidence threshold, and drives the car accordingly.
+- **Live ESP32 mode** — with the ESP32-S3 plugged in over USB, click 🔌 Connect ESP32-S3 and pick its serial port. Uses the browser's [Web Serial API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Serial_API) (Chrome/Edge desktop only) to read the same `[ms] letter=X confidence=Y%` log lines the Arduino IDE Serial Monitor shows, and drives the virtual car from them in real time — no bridge script needed. Only one process can hold the serial port open at a time, so close the Arduino IDE's Serial Monitor (or `serial_bridge.py`) before connecting here.
 
 The simulator includes a live timeout countdown bar, command feed with accept/reject status, and motor telemetry — everything the real car does, visualized.
 

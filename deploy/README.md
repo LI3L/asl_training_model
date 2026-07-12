@@ -6,19 +6,26 @@ runs them through the trained `model.h` (int8-quantized TFLite model, float32
 in/out), and logs each prediction over Serial as:
 
 ```text
-[12345 ms] letter=A confidence=97.32%
+[12345 ms] letter=A  confidence=97.3%
 ```
+
+For the five car-command letters (W/C/L/R/S) at ≥80% confidence, it also
+forwards just the letter over `Serial1` (GPIO2) to drive an Arduino Mega car
+controller — see the main [README](../README.md#-asl-car-control) for the
+full car wiring, the USB-bridge alternative, and the HTML simulator.
 
 ## Folder contents
 
 ```text
 deploy/
 ├── sync_model.sh              # Copies output/model.h into the sketch folder
-└── esp32/
-    └── ASL_Detector/
-        ├── ASL_Detector.ino   # Camera capture + inference + Serial logging
-        ├── camera_pins.h      # XIAO ESP32S3 Sense camera pin mapping
-        └── model.h            # Converted model (kept in sync via sync_model.sh)
+├── esp32/
+│   └── ASL_Detector/
+│       ├── ASL_Detector.ino   # Camera capture + inference + Serial logging
+│       ├── camera_pins.h      # XIAO ESP32S3 Sense camera pin mapping
+│       └── model.h            # Converted model (kept in sync via sync_model.sh)
+└── arduino_mega/
+    └── ASL_Car_Controller/    # Arduino Mega sketch that drives the car
 ```
 
 ## Arduino IDE setup, start to finish
@@ -83,7 +90,7 @@ sure it's connected to the same port selected in step 3. Predictions stream
 in over the Type-C connector as:
 
 ```text
-[12345 ms] letter=A confidence=97.32%
+[12345 ms] letter=A  confidence=97.3%
 ```
 
 ## If predictions are wrong on-device but correct in `test_model.py`
@@ -94,8 +101,9 @@ camera feeds it doesn't look like what `test_model.py` feeds it. Unlike
 see what the ESP32 camera is capturing... unless you turn on the built-in
 ASCII-art debug view.
 
-`ASL_Detector.ino` has `#define DEBUG_PRINT_INPUT 1` near the top (on by
-default). With it on, every prediction is preceded by a 28x28 ASCII-art
+`ASL_Detector.ino` has `#define DEBUG_PRINT_INPUT` near the top (`0` by
+default — flip it to `1` and re-flash to turn it on). With it on, every
+prediction is preceded by a 28x28 ASCII-art
 rendering of exactly what the model received. Open the Serial Monitor and
 hold up a sign — you should see a rough hand shape rendered in `.:-=+*#@`
 characters. Two things to check against it:
@@ -129,11 +137,22 @@ back to a clean one-line-per-prediction log.
   the logs — just the same cable and the Serial Monitor.
 
 - No on-device hand segmentation is attempted (too expensive for the
-  ESP32S3's compute budget) — the camera frame is center-captured at a small
-  square resolution and downsampled directly to the model's 28x28 input, the
-  same way `src/test_model.py` skips segmentation once cropped. Robustness to
-  backgrounds comes from training-time augmentation (see the main
-  [README](../README.md#-notes-on-domain-shift)), not runtime cropping.
+  ESP32S3's compute budget). `preprocess()` does apply a fixed center crop
+  (`CROP_FRACTION`, default 0.7 — the center 70% of the 96x96 capture) before
+  downsampling to 28x28, which trims some background and makes the hand fill
+  more of the model's input, but it's not real hand detection — you still
+  need to frame your hand centered and close-ish (see the distance note
+  above). Robustness to backgrounds otherwise comes from training-time
+  augmentation (see the main [README](../README.md#-notes-on-domain-shift)),
+  not runtime cropping.
+- Predictions are smoothed: a single frame's guess is only counted if its
+  confidence is at least `MIN_CONFIDENCE` (default 40%), and a letter is
+  only logged once it's the majority of the last `SMOOTH_WINDOW` frames
+  (default 3 of the last 5). This trades a little latency for cutting down
+  flicker between noisy single-frame misreads. While no letter has reached a
+  majority yet, the log prints `[ms] ...` instead of a guess. Lower
+  `SMOOTH_MAJORITY`/`SMOOTH_WINDOW` or `MIN_CONFIDENCE` for faster but
+  noisier output, raise them for steadier but slower-to-update output.
 - `ALPHABET` in `ASL_Detector.ino` must stay in sync with `ALPHABET` in
   `src/test_model.py` (both derive from the Sign Language MNIST label order,
   skipping J/Z since they require motion).

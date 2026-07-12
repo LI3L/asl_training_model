@@ -5,8 +5,9 @@
 //   Option 1 (Wire):  ESP32 Serial1 TX (GPIO2) → Mega RX2 (pin 17)
 //   Option 2 (USB):   Python bridge reads ESP32 USB log → sends letter to Mega USB
 //
-// Letter → Action mapping:
-//   F = Forward    B = Backward    L = Left    R = Right    S = Stop
+// Letter → Action mapping (must match FORWARD/BACKWARD/LEFT/RIGHT/STOP below,
+// and the isCarCommand letters in the ESP32's ASL_Detector.ino):
+//   W = Forward    C = Backward    L = Left    R = Right    S = Stop
 //
 // The car auto-stops after 3 seconds of no valid command (safety timeout).
 
@@ -56,6 +57,13 @@ int currentSteeringAngle = angleStraight;
 // Target steering angle for smooth transitions
 int targetSteeringAngle = angleStraight;
 
+// --- const of car control ---
+const char FORWARD = 'W';
+const char BACKWARD = 'C';
+const char LEFT = 'L';
+const char RIGHT = 'R';
+const char STOP = 'S';
+
 void setup() {
   // USB Serial for debug output (and for receiving commands via USB bridge)
   Serial.begin(9600);
@@ -89,7 +97,7 @@ void setup() {
   stopMotors();
 
   Serial.println("ASL Car Controller Ready!");
-  Serial.println("Commands: F=Forward B=Back L=Left R=Right S=Stop");
+  Serial.println("Commands: W=Forward C=Back L=Left R=Right S=Stop");
   Serial.println("Waiting for commands from ESP32...");
 
   lastCommandTime = millis();
@@ -120,7 +128,7 @@ void loop() {
   // --- 2. Process the received command ---
   if (cmd != 0) {
     // Only accept valid command letters
-    if (cmd == 'F' || cmd == 'B' || cmd == 'L' || cmd == 'R' || cmd == 'S') {
+    if (cmd == FORWARD || cmd == BACKWARD || cmd == LEFT || cmd == RIGHT || cmd == STOP) {
       if (cmd != currentCommand) {
         Serial.print(">> New command: ");
         Serial.println(cmd);
@@ -139,27 +147,27 @@ void loop() {
 
   // --- 4. Execute the current command ---
   switch (currentCommand) {
-    case 'F':
+    case FORWARD:
       driveForwardSynced(DRIVE_SPEED);
       targetSteeringAngle = angleStraight;
       break;
 
-    case 'B':
+    case BACKWARD:
       driveBackward(DRIVE_SPEED);
       targetSteeringAngle = angleStraight;
       break;
 
-    case 'L':
+    case LEFT:
       driveForwardSynced(TURN_SPEED);
       targetSteeringAngle = angleLeft;
       break;
 
-    case 'R':
+    case RIGHT:
       driveForwardSynced(TURN_SPEED);
       targetSteeringAngle = angleRight;
       break;
 
-    case 'S':
+    case STOP:
     default:
       stopMotors();
       targetSteeringAngle = angleStraight;

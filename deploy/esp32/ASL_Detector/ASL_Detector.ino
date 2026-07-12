@@ -1,6 +1,9 @@
 // Runs the trained ASL model on the XIAO ESP32S3 Sense: grabs a grayscale
 // frame from the onboard camera, feeds it to the on-device TFLite model,
-// and logs every prediction (letter + confidence) over Serial.
+// logs every prediction (letter + confidence) over USB Serial, and -- for
+// the five car-command letters (W/C/L/R/S) above CAR_CONFIDENCE_THRESHOLD --
+// forwards just the letter over Serial1 (CAR_TX_PIN) to an Arduino Mega car
+// controller. See the main README's "ASL Car Control" section.
 //
 // Deploy steps:
 //   1. Run `../sync_model.sh` (or copy output/model.h here by hand) whenever
@@ -9,6 +12,8 @@
 //   3. Install the "tflm_esp32" library in the Arduino IDE.
 //   4. Select the "XIAO_ESP32S3" board and flash.
 //   5. Open the Serial Monitor at 115200 baud to see the prediction log.
+//   6. Optional: wire CAR_TX_PIN to the Mega's RX2 (pin 17) + shared GND to
+//      drive a car -- see deploy/arduino_mega/ASL_Car_Controller.
 
 #include "esp_camera.h"
 #include "camera_pins.h"
@@ -26,16 +31,26 @@ const char ALPHABET[] = "ABCDEFGHIKLMNOPQRSTUVWXY";
 #define NUM_INPUTS  784   // 28 * 28
 #define NUM_OUTPUTS  24   // len(ALPHABET)
 
-// --- Car communication settings ---
-// Minimum confidence (%) to send a letter to the car controller.
-#define MIN_CONFIDENCE 80.0f
+// --- Car communication settings (see main README's "ASL Car Control" /
+// "Connection Option 1: Direct wire" section) ---
+// Minimum confidence (%, 0-100) to forward a stable letter to the car
+// controller. Deliberately separate from MIN_CONFIDENCE below, which gates
+// the on-device smoothing and is a 0.0-1.0 fraction, not a percentage.
+#define CAR_CONFIDENCE_THRESHOLD 80.0f
 // GPIO pin for Serial1 TX to the car (D1 on XIAO ESP32S3 Sense).
-// Connect this pin to the Arduino Mega's RX2 (pin 17).
+// Connect this pin to the Arduino Mega's RX2 (pin 17), and GND to GND.
 #define CAR_TX_PIN 2
 
 // Ops used by the trained CNN: QUANTIZE, CONV_2D, MUL, ADD,
 // MAX_POOL_2D, RESHAPE, FULLY_CONNECTED, SOFTMAX, DEQUANTIZE.
 #define TF_NUM_OPS 9
+
+// Ignore single-frame guesses below this confidence entirely, and only log
+// a letter once it's the majority of the last SMOOTH_WINDOW frames -- cuts
+// down on flicker between noisy single-frame misreads.
+#define MIN_CONFIDENCE 0.40f
+#define SMOOTH_WINDOW 5
+#define SMOOTH_MAJORITY 3
 
 // Tensor arena in PSRAM (8 MB on the Sense board). Internal DRAM (~255 KB
 // usable) is too small for this model's im2col scratch buffers. Requires
@@ -48,12 +63,25 @@ uint8_t         *tensorArena  = nullptr;
 TfLiteTensor    *modelInput   = nullptr;
 TfLiteTensor    *modelOutput  = nullptr;
 
-// Capture at 96x96 grayscale (smallest square frame the sensor supports) and
-// downsample to the model's 28x28 input. Center your hand in frame, filling
-// most of the view, but stay outside the lens's close-focus blur zone --
-// roughly a hand's length (15-25cm) back, not pressed up against the
-// camera. There is no on-device hand crop, so framing is on you.
+// Ring buffer of recent above-threshold predictions, used for majority-vote
+// smoothing in loop() below.
+int   smoothHistory[SMOOTH_WINDOW];
+float smoothConf[SMOOTH_WINDOW];
+int   smoothIdx = 0;
+
+// Capture at 96x96 grayscale (smallest square frame the sensor supports).
+// Center your hand in frame, filling most of the view, but stay outside the
+// lens's close-focus blur zone -- roughly a hand's length (15-25cm) back,
+// not pressed up against the camera.
 const int CAPTURE_SIZE = 96;
+
+// preprocess() below downsamples only the center CROP_FRACTION of the
+// capture (discarding the outer margin) instead of squeezing the entire
+// field of view into the model's 28x28 input. This is a fixed center crop,
+// not real hand detection (too expensive for this board), but it trims
+// unused background and makes the hand fill more of what the model
+// actually sees, closer to the tightly-cropped training images.
+const float CROP_FRACTION = 0.7f;
 
 // Prints exactly what the model receives as ASCII art -- the on-device
 // equivalent of the "Model Input (28x28 preprocessed)" debug window in
@@ -111,19 +139,23 @@ esp_err_t initCamera() {
   return esp_camera_init(&config);
 }
 
-// Box-average downsample of the 96x96 grayscale frame to 28x28, normalized
-// to 0.0-1.0 -- closer to cv2.resize()'s antialiased default than a
-// nearest-neighbor pick, matching preprocess_image() in src/test_model.py
-// more closely. Applies FLIP_VERTICAL / MIRROR_HORIZONTAL if set above.
+// Box-average downsample of the center CROP_FRACTION of the 96x96 grayscale
+// frame to 28x28, normalized to 0.0-1.0 -- closer to cv2.resize()'s
+// antialiased default than a nearest-neighbor pick, matching
+// preprocess_image() in src/test_model.py more closely. Applies
+// FLIP_VERTICAL / MIRROR_HORIZONTAL if set above.
 void preprocess(const uint8_t *frame, float *out) {
   const int DST = 28;
+  const int cropSize = (int)(CAPTURE_SIZE * CROP_FRACTION);
+  const int cropOffset = (CAPTURE_SIZE - cropSize) / 2;
+
   for (int y = 0; y < DST; y++) {
-    int sy0 = y * CAPTURE_SIZE / DST;
-    int sy1 = (y + 1) * CAPTURE_SIZE / DST;
+    int sy0 = cropOffset + y * cropSize / DST;
+    int sy1 = cropOffset + (y + 1) * cropSize / DST;
     if (sy1 <= sy0) sy1 = sy0 + 1;
     for (int x = 0; x < DST; x++) {
-      int sx0 = x * CAPTURE_SIZE / DST;
-      int sx1 = (x + 1) * CAPTURE_SIZE / DST;
+      int sx0 = cropOffset + x * cropSize / DST;
+      int sx1 = cropOffset + (x + 1) * cropSize / DST;
       if (sx1 <= sx0) sx1 = sx0 + 1;
 
       uint32_t sum = 0;
@@ -151,9 +183,16 @@ void setup() {
   Serial.begin(115200);
   while (!Serial) delay(10);
 
-  // Serial1 for sending commands to the car controller over wire.
-  // TX-only: RX pin set to -1 (unused). 9600 baud to match the car's Serial2.
+  // Direct-wire link to the Arduino Mega car controller: TX only (RX
+  // unused, hence -1) on CAR_TX_PIN, 9600 baud to match Serial2.begin(9600)
+  // in ASL_Car_Controller.ino on the Mega side.
   Serial1.begin(9600, SERIAL_8N1, -1, CAR_TX_PIN);
+
+  // -1 marks a slot as empty so it doesn't get counted as a vote for
+  // letter A (index 0) before real predictions fill the window.
+  for (int i = 0; i < SMOOTH_WINDOW; i++) {
+    smoothHistory[i] = -1;
+  }
 
   if (initCamera() != ESP_OK)
     halt("ERROR: camera init failed. Check camera_pins.h and board wiring.");
@@ -235,15 +274,54 @@ void loop() {
     if (modelOutput->data.f[i] > modelOutput->data.f[best])
       best = i;
   }
+  float confidence = modelOutput->data.f[best];
 
-  float confidence = modelOutput->data.f[best] * 100.0f;
-  Serial.printf("[%lu ms] letter=%c  confidence=%.1f%%\n",
-      millis(), ALPHABET[best], confidence);
-
-  // Send the letter to the car controller (wire connection on Serial1)
-  // only when confidence meets the threshold.
+  // Only feed above-threshold guesses into the smoothing window -- a
+  // low-confidence frame shouldn't be able to win a majority vote.
   if (confidence >= MIN_CONFIDENCE) {
-    Serial1.println(ALPHABET[best]);
+    smoothHistory[smoothIdx] = best;
+    smoothConf[smoothIdx] = confidence;
+    smoothIdx = (smoothIdx + 1) % SMOOTH_WINDOW;
+  }
+
+  int letterCounts[NUM_OUTPUTS] = {0};
+  float letterConfSum[NUM_OUTPUTS] = {0};
+  for (int i = 0; i < SMOOTH_WINDOW; i++) {
+    int letter = smoothHistory[i];
+    if (letter >= 0) {
+      letterCounts[letter]++;
+      letterConfSum[letter] += smoothConf[i];
+    }
+  }
+
+  int stableLetter = -1, stableCount = 0;
+  for (int i = 0; i < NUM_OUTPUTS; i++) {
+    if (letterCounts[i] > stableCount) {
+      stableCount = letterCounts[i];
+      stableLetter = i;
+    }
+  }
+
+  if (stableLetter >= 0 && stableCount >= SMOOTH_MAJORITY) {
+    char letter = ALPHABET[stableLetter];
+    float avgConfidencePct = (letterConfSum[stableLetter] / stableCount) * 100.0f;
+    Serial.printf("[%lu ms] letter=%c  confidence=%.1f%%\n",
+        millis(), letter, avgConfidencePct);
+
+    // Forward to the car over the direct wire (see main README's "ASL Car
+    // Control" section) -- only the five car-command letters, and only
+    // once they clear the stricter CAR_CONFIDENCE_THRESHOLD (independent
+    // of the on-device smoothing's MIN_CONFIDENCE above). W/C map to
+    // forward/backward (not F/B) to match FORWARD/BACKWARD in the Mega's
+    // ASL_Car_Controller.ino.
+    bool isCarCommand = (letter == 'W' || letter == 'C' || letter == 'L' ||
+                          letter == 'R' || letter == 'S');
+    if (isCarCommand && avgConfidencePct >= CAR_CONFIDENCE_THRESHOLD) {
+      Serial1.write(letter);
+      Serial1.write('\n');
+    }
+  } else {
+    Serial.printf("[%lu ms] ...\n", millis());
   }
 
 #if DEBUG_PRINT_INPUT
