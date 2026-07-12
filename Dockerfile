@@ -12,8 +12,9 @@ RUN apt-get update && apt-get install -y \
     libgtk2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install standard opencv-python and pin numpy to prevent TF 2.15 crashes
-RUN pip install pandas matplotlib scipy "numpy<2" opencv-python
+# Install standard opencv-python and pin numpy to prevent TF 2.15 crashes.
+# pyserial is for run_model.py --car / serial_bridge.py talking to the Mega.
+RUN pip install pandas matplotlib scipy "numpy<2" opencv-python pyserial
 
 WORKDIR /app
 

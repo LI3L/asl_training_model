@@ -15,6 +15,10 @@ services:
     devices:
       # Expose the built-in laptop camera
       - /dev/video0:/dev/video0
+      # Expose the Arduino Mega's USB serial port for `run_model.py --car`.
+      # Plug in the Mega, run `ls /dev/ttyACM* /dev/ttyUSB*` on the host to
+      # find its actual path, then uncomment and adjust below.
+      - /dev/ttyACM0:/dev/ttyACM0
     environment:
       # Pass the display variable so OpenCV knows where to draw the window
       - DISPLAY=${DISPLAY}
