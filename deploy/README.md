@@ -6,19 +6,26 @@ runs them through the trained `model.h` (int8-quantized TFLite model, float32
 in/out), and logs each prediction over Serial as:
 
 ```text
-[12345 ms] letter=A confidence=97.32%
+[12345 ms] letter=A  confidence=97.3%
 ```
+
+For the five car-command letters (W/C/L/R/S) at ≥80% confidence, it also
+forwards just the letter over `Serial1` (GPIO2) to drive an Arduino Mega car
+controller — see the main [README](../README.md#-asl-car-control) for the
+full car wiring, the USB-bridge alternative, and the HTML simulator.
 
 ## Folder contents
 
 ```text
 deploy/
 ├── sync_model.sh              # Copies output/model.h into the sketch folder
-└── esp32/
-    └── ASL_Detector/
-        ├── ASL_Detector.ino   # Camera capture + inference + Serial logging
-        ├── camera_pins.h      # XIAO ESP32S3 Sense camera pin mapping
-        └── model.h            # Converted model (kept in sync via sync_model.sh)
+├── esp32/
+│   └── ASL_Detector/
+│       ├── ASL_Detector.ino   # Camera capture + inference + Serial logging
+│       ├── camera_pins.h      # XIAO ESP32S3 Sense camera pin mapping
+│       └── model.h            # Converted model (kept in sync via sync_model.sh)
+└── arduino_mega/
+    └── ASL_Car_Controller/    # Arduino Mega sketch that drives the car
 ```
 
 ## Arduino IDE setup, start to finish
@@ -83,7 +90,7 @@ sure it's connected to the same port selected in step 3. Predictions stream
 in over the Type-C connector as:
 
 ```text
-[12345 ms] letter=A confidence=97.32%
+[12345 ms] letter=A  confidence=97.3%
 ```
 
 ## If predictions are wrong on-device but correct in `test_model.py`
@@ -94,8 +101,9 @@ camera feeds it doesn't look like what `test_model.py` feeds it. Unlike
 see what the ESP32 camera is capturing... unless you turn on the built-in
 ASCII-art debug view.
 
-`ASL_Detector.ino` has `#define DEBUG_PRINT_INPUT 1` near the top (on by
-default). With it on, every prediction is preceded by a 28x28 ASCII-art
+`ASL_Detector.ino` has `#define DEBUG_PRINT_INPUT` near the top (`0` by
+default — flip it to `1` and re-flash to turn it on). With it on, every
+prediction is preceded by a 28x28 ASCII-art
 rendering of exactly what the model received. Open the Serial Monitor and
 hold up a sign — you should see a rough hand shape rendered in `.:-=+*#@`
 characters. Two things to check against it:

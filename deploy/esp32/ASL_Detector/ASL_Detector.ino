@@ -1,6 +1,9 @@
 // Runs the trained ASL model on the XIAO ESP32S3 Sense: grabs a grayscale
 // frame from the onboard camera, feeds it to the on-device TFLite model,
-// and logs every prediction (letter + confidence) over Serial.
+// logs every prediction (letter + confidence) over USB Serial, and -- for
+// the five car-command letters (W/C/L/R/S) above CAR_CONFIDENCE_THRESHOLD --
+// forwards just the letter over Serial1 (CAR_TX_PIN) to an Arduino Mega car
+// controller. See the main README's "ASL Car Control" section.
 //
 // Deploy steps:
 //   1. Run `../sync_model.sh` (or copy output/model.h here by hand) whenever
@@ -9,6 +12,8 @@
 //   3. Install the "tflm_esp32" library in the Arduino IDE.
 //   4. Select the "XIAO_ESP32S3" board and flash.
 //   5. Open the Serial Monitor at 115200 baud to see the prediction log.
+//   6. Optional: wire CAR_TX_PIN to the Mega's RX2 (pin 17) + shared GND to
+//      drive a car -- see deploy/arduino_mega/ASL_Car_Controller.
 
 #include "esp_camera.h"
 #include "camera_pins.h"
@@ -26,11 +31,14 @@ const char ALPHABET[] = "ABCDEFGHIKLMNOPQRSTUVWXY";
 #define NUM_INPUTS  784   // 28 * 28
 #define NUM_OUTPUTS  24   // len(ALPHABET)
 
-// --- Car communication settings ---
-// Minimum confidence (%) to send a letter to the car controller.
-#define MIN_CONFIDENCE 80.0f
+// --- Car communication settings (see main README's "ASL Car Control" /
+// "Connection Option 1: Direct wire" section) ---
+// Minimum confidence (%, 0-100) to forward a stable letter to the car
+// controller. Deliberately separate from MIN_CONFIDENCE below, which gates
+// the on-device smoothing and is a 0.0-1.0 fraction, not a percentage.
+#define CAR_CONFIDENCE_THRESHOLD 80.0f
 // GPIO pin for Serial1 TX to the car (D1 on XIAO ESP32S3 Sense).
-// Connect this pin to the Arduino Mega's RX2 (pin 17).
+// Connect this pin to the Arduino Mega's RX2 (pin 17), and GND to GND.
 #define CAR_TX_PIN 2
 
 // Ops used by the trained CNN: QUANTIZE, CONV_2D, MUL, ADD,
@@ -175,6 +183,11 @@ void setup() {
   Serial.begin(115200);
   while (!Serial) delay(10);
 
+  // Direct-wire link to the Arduino Mega car controller: TX only (RX
+  // unused, hence -1) on CAR_TX_PIN, 9600 baud to match Serial2.begin(9600)
+  // in ASL_Car_Controller.ino on the Mega side.
+  Serial1.begin(9600, SERIAL_8N1, -1, CAR_TX_PIN);
+
   // -1 marks a slot as empty so it doesn't get counted as a vote for
   // letter A (index 0) before real predictions fill the window.
   for (int i = 0; i < SMOOTH_WINDOW; i++) {
@@ -290,9 +303,23 @@ void loop() {
   }
 
   if (stableLetter >= 0 && stableCount >= SMOOTH_MAJORITY) {
-    float avgConfidence = letterConfSum[stableLetter] / stableCount;
+    char letter = ALPHABET[stableLetter];
+    float avgConfidencePct = (letterConfSum[stableLetter] / stableCount) * 100.0f;
     Serial.printf("[%lu ms] letter=%c  confidence=%.1f%%\n",
-        millis(), ALPHABET[stableLetter], avgConfidence * 100.0f);
+        millis(), letter, avgConfidencePct);
+
+    // Forward to the car over the direct wire (see main README's "ASL Car
+    // Control" section) -- only the five car-command letters, and only
+    // once they clear the stricter CAR_CONFIDENCE_THRESHOLD (independent
+    // of the on-device smoothing's MIN_CONFIDENCE above). W/C map to
+    // forward/backward (not F/B) to match FORWARD/BACKWARD in the Mega's
+    // ASL_Car_Controller.ino.
+    bool isCarCommand = (letter == 'W' || letter == 'C' || letter == 'L' ||
+                          letter == 'R' || letter == 'S');
+    if (isCarCommand && avgConfidencePct >= CAR_CONFIDENCE_THRESHOLD) {
+      Serial1.write(letter);
+      Serial1.write('\n');
+    }
   } else {
     Serial.printf("[%lu ms] ...\n", millis());
   }
