@@ -489,8 +489,8 @@
                 <div class="key-badge">W</div>
                 <div class="key-action"><span class="emoji">⬆️</span> Forward</div>
               </div>
-              <div class="key-item" id="keyB">
-                <div class="key-badge">B</div>
+              <div class="key-item" id="keyY">
+                <div class="key-badge">Y</div>
                 <div class="key-action"><span class="emoji">⬇️</span> Backward</div>
               </div>
               <div class="key-item" id="keyO">
@@ -796,8 +796,8 @@ function drawCar() {
 
 function drawCommandOverlay() {
   // Show current command in top-left of canvas
-  const cmdNames = { W: 'FORWARD', B: 'BACKWARD', C: 'LEFT', A: 'RIGHT', O: 'STOPPED' };
-  const cmdColors = { W: '#22c97a', B: '#ff8844', C: '#4f8cff', A: '#aa66ff', O: '#ff4466' };
+  const cmdNames = { W: 'FORWARD', Y: 'BACKWARD', C: 'LEFT', A: 'RIGHT', O: 'STOPPED' };
+  const cmdColors = { W: '#22c97a', Y: '#ff8844', C: '#4f8cff', A: '#aa66ff', O: '#ff4466' };
 
   const name = cmdNames[car.command] || 'UNKNOWN';
   const color = cmdColors[car.command] || '#888';
@@ -878,7 +878,7 @@ animFrame = requestAnimationFrame(animate);
 
 // ===== Command Processing =====
 function processCommand(letter, confidence, isTimeout = false) {
-  const isValid = letter === 'W' || letter === 'B' || letter === 'C' || letter === 'A' || letter === 'O';
+  const isValid = letter === 'W' || letter === 'Y' || letter === 'C' || letter === 'A' || letter === 'O';
   const passesThreshold = confidence >= CONFIDENCE_THRESHOLD;
   const accepted = isValid && (passesThreshold || isTimeout);
 
@@ -897,7 +897,7 @@ function processCommand(letter, confidence, isTimeout = false) {
       car.targetSpeed = DRIVE_SPEED;
       car.targetSteering = ANGLE_STRAIGHT;
       break;
-    case 'B':
+    case 'Y':
       car.targetSpeed = -DRIVE_SPEED;
       car.targetSteering = ANGLE_STRAIGHT;
       break;
@@ -919,8 +919,8 @@ function processCommand(letter, confidence, isTimeout = false) {
 // ===== UI Updates =====
 function updateUI() {
   // Telemetry
-  const cmdNames = { W: 'FWD', B: 'REV', C: 'LEFT', A: 'RIGHT', O: 'STOP' };
-  const cmdColors = { W: 'green', B: 'orange', C: 'blue', A: 'blue', O: 'red' };
+  const cmdNames = { W: 'FWD', Y: 'REV', C: 'LEFT', A: 'RIGHT', O: 'STOP' };
+  const cmdColors = { W: 'green', Y: 'orange', C: 'blue', A: 'blue', O: 'red' };
 
   document.getElementById('telemCmdVal').textContent = cmdNames[car.command] || '—';
   document.getElementById('telemCmdVal').className = `telem-value ${cmdColors[car.command] || ''}`;
@@ -980,7 +980,7 @@ function addFeedEntry(letter, confidence, accepted, isValid) {
   const entry = document.createElement('div');
   entry.className = `cmd-entry ${accepted ? 'accepted' : 'rejected'}`;
 
-  const cmdMap = { W: 'Forward', B: 'Back', C: 'Left', A: 'Right', O: 'Stop' };
+  const cmdMap = { W: 'Forward', Y: 'Back', C: 'Left', A: 'Right', O: 'Stop' };
   const action = cmdMap[letter] || letter;
   let reason = '';
   if (!isValid) reason = 'unmapped';
@@ -1014,7 +1014,7 @@ document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
 
   const key = e.key.toUpperCase();
-  if (['W', 'B', 'C', 'A', 'O'].includes(key)) {
+  if (['W', 'Y', 'C', 'A', 'O'].includes(key)) {
     processCommand(key, 100);
     highlightKey(key);
   }
@@ -1240,8 +1240,8 @@ function loadSampleLogs() {
 [117234 ms] letter=W  confidence=87.3%
 [118465 ms] letter=W  confidence=92.0%
 [119696 ms] letter=O  confidence=85.3%
-[120927 ms] letter=B  confidence=82.5%
-[122158 ms] letter=B  confidence=89.2%
+[120927 ms] letter=Y  confidence=82.5%
+[122158 ms] letter=Y  confidence=89.2%
 [123389 ms] letter=O  confidence=91.0%`;
 }
 

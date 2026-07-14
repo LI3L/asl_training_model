@@ -1,7 +1,7 @@
 // Runs the trained ASL model on the XIAO ESP32S3 Sense: grabs a grayscale
 // frame from the onboard camera, feeds it to the on-device TFLite model,
 // logs every prediction (letter + confidence) over USB Serial, and -- for
-// the five car-command letters (W/B/C/A/O) above CAR_CONFIDENCE_THRESHOLD --
+// the five car-command letters (W/Y/C/A/O) above CAR_CONFIDENCE_THRESHOLD --
 // forwards just the letter over Serial1 (CAR_TX_PIN) to an Arduino Mega car
 // controller. See the main README's "ASL Car Control" section.
 //
@@ -311,10 +311,10 @@ void loop() {
     // Forward to the car over the direct wire (see main README's "ASL Car
     // Control" section) -- only the five car-command letters, and only
     // once they clear the stricter CAR_CONFIDENCE_THRESHOLD (independent
-    // of the on-device smoothing's MIN_CONFIDENCE above). W/B/C/A/O map to
+    // of the on-device smoothing's MIN_CONFIDENCE above). W/Y/C/A/O map to
     // forward/backward/left/right/stop to match FORWARD/BACKWARD/LEFT/
     // RIGHT/STOP in the Mega's ASL_Car_Controller.ino.
-    bool isCarCommand = (letter == 'W' || letter == 'B' || letter == 'C' ||
+    bool isCarCommand = (letter == 'W' || letter == 'Y' || letter == 'C' ||
                           letter == 'A' || letter == 'O');
     if (isCarCommand && avgConfidencePct >= CAR_CONFIDENCE_THRESHOLD) {
       Serial1.write(letter);

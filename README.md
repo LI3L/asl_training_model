@@ -172,7 +172,7 @@ The camera recognizes ASL hand signs and sends them to an **Arduino Mega** that 
 | ASL Letter | Car Action | Description |
 |---|---|---|
 | **W** | Forward | Drive straight with encoder sync |
-| **B** | Backward | Reverse straight |
+| **Y** | Backward | Reverse straight |
 | **C** | Left | Turn left while driving forward |
 | **A** | Right | Turn right while driving forward |
 | **O** | Stop | Stop all motors |
@@ -254,7 +254,7 @@ Both boards stay plugged into your computer via USB. A Python script reads the E
       106398       W    89.4%  SEND → W
       107629       W    92.1%  SEND → W
    ```
-   (The letter `D` is skipped because it's not a car command — only W/B/C/A/O are forwarded.)
+   (The letter `D` is skipped because it's not a car command — only W/Y/C/A/O are forwarded.)
 
 5. To just monitor the camera without sending to the car:
    ```bash
@@ -286,9 +286,37 @@ Don't have the ESP32-S3 flashed/wired yet, or want to iterate on the model witho
    ```bash
    docker compose run --rm pipeline python src/run_model.py webcam --keras --car /dev/ttyACM0
    ```
-   *(Drop `--keras` to use the converted `.tflite` model instead; add `--threshold 80` to change the car's confidence gate from the 80% default.)*
+   *(Drop `--keras` to use the converted `.tflite` model instead; add `--threshold 80` to change the car's confidence gate from the 80% default. Drop the `/dev/ttyACM0` argument and just pass `--car` on its own to auto-detect the port instead — see Option 4 below.)*
 
-   The live feed and model-input windows appear just like `test_model.py`/Step 3b, ESP32-format log lines print to the terminal, and whenever the smoothed prediction is one of W/B/C/A/O at ≥ 80% confidence, that letter is sent straight to the Mega — same effect as Option 2, no ESP32 required.
+   The live feed and model-input windows appear just like `test_model.py`/Step 3b, ESP32-format log lines print to the terminal, and whenever the smoothed prediction is one of W/Y/C/A/O at ≥ 80% confidence, that letter is sent straight to the Mega — same effect as Option 2, no ESP32 required.
+
+### Connection Option 4: Bluetooth (no cable to the computer)
+
+`run_model.py --car` (with no port argument) auto-detects the Mega's connection: it prefers a wired port (`/dev/ttyACM*`/`/dev/ttyUSB*`) if one is plugged in, and otherwise falls back to a paired Bluetooth SPP port (`/dev/rfcomm*`). The Mega's firmware already listens on `Serial3` for this — no rewiring needed if you've already wired an HC-05/HC-06 module there.
+
+**Steps:**
+
+1. Wire an HC-05/HC-06 module to the Mega: module `TXD` → Mega `RX3` (pin 15), module `RXD` → Mega `TX3` (pin 14), plus shared `GND` and `VCC` (5V). Most of these modules have an onboard 3.3V regulator so 5V power is fine, but `RX3`'s 5V logic can be out of spec for the module's `RXD` pin — a voltage divider on that line is the safe option (same caution as the ESP32 wiring above).
+
+2. Pair the module with your computer through its normal Bluetooth settings — HC-05/HC-06 modules typically use PIN `1234` or `0000`.
+
+3. Bind the paired device to a fixed serial port (Linux):
+   ```bash
+   sudo rfcomm bind rfcomm0 <MAC_ADDRESS> 1
+   ```
+   *(Find `<MAC_ADDRESS>` with `bluetoothctl` or your OS's Bluetooth settings. This creates `/dev/rfcomm0`, matching the fixed path `run_model.py` looks for.)*
+
+4. Expose that device to the Docker container the same way as the USB port — uncomment/add in `docker-compose.yml`:
+   ```yaml
+   devices:
+     - /dev/rfcomm0:/dev/rfcomm0
+   ```
+
+5. Run it — leave out both `/dev/ttyACM0` and the wired cable:
+   ```bash
+   docker compose run --rm pipeline python src/run_model.py webcam --keras --car
+   ```
+   With no cable plugged in, this finds `/dev/rfcomm0` and drives the car over Bluetooth instead — same W/Y/C/A/O commands, same confidence gating, no code changes needed if you unplug the cable later or plug it back in.
 
 ### Local simulator (no hardware needed)
 

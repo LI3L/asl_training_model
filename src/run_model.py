@@ -12,16 +12,26 @@ Reuses model loading/preprocessing from test_model.py and shows the same
 Usage:
     python run_model.py                       # tflite model, logs to stdout only
     python run_model.py --keras               # use the .keras model instead
-    python run_model.py --car /dev/ttyACM0     # also drive the Mega: sends a
-                                               # single letter (W/B/C/A/O) at
-                                               # 9600 baud whenever the stable
-                                               # prediction is a car command
-                                               # above --threshold confidence
-    python run_model.py --car /dev/ttyACM0 --threshold 80
+    python run_model.py --car                  # also drive the Mega: auto-picks
+                                               # a wired port (/dev/ttyACM*,
+                                               # /dev/ttyUSB*) if one is plugged
+                                               # in, otherwise falls back to a
+                                               # paired Bluetooth SPP port
+                                               # (/dev/rfcomm*) -- see the main
+                                               # README's "ASL Car Control"
+                                               # section for pairing/binding
+                                               # the Bluetooth module first.
+    python run_model.py --car /dev/ttyACM0     # skip auto-detection, use this
+                                               # exact port (wired or BT alike)
+    python run_model.py --car --threshold 80
+
+Sends a single letter (W/Y/C/A/O) at 9600 baud whenever the stable prediction
+is a car command above --threshold confidence.
 
 Press 'q' to quit, 's' to save the current frame for debugging.
 """
 
+import glob
 import os
 import sys
 import time
@@ -45,8 +55,29 @@ SMOOTH_MAJORITY = 3
 # Matches CAR_CONFIDENCE_THRESHOLD and isCarCommand in ASL_Detector.ino, and
 # the FORWARD/BACKWARD/LEFT/RIGHT/STOP letters ASL_Car_Controller.ino acts on.
 CAR_CONFIDENCE_THRESHOLD = 80.0
-CAR_COMMAND_LETTERS = {"W", "B", "C", "A", "O"}
+CAR_COMMAND_LETTERS = {"W", "Y", "C", "A", "O"}
 CAR_BAUD = 9600
+
+# Auto-detection order for --car with no explicit port: a wired connection is
+# preferred (lower latency, no pairing needed), a paired Bluetooth SPP module
+# (see main README's "ASL Car Control" section for pairing/binding it to one
+# of these paths) is the fallback for when no cable is plugged in.
+CAR_WIRED_PORT_GLOBS = ["/dev/ttyACM*", "/dev/ttyUSB*"]
+CAR_BT_PORT_GLOBS = ["/dev/rfcomm*"]
+
+
+def find_car_port(explicit_port):
+    if explicit_port is not None:
+        return explicit_port, "explicit"
+    for pattern in CAR_WIRED_PORT_GLOBS:
+        matches = sorted(glob.glob(pattern))
+        if matches:
+            return matches[0], "wired"
+    for pattern in CAR_BT_PORT_GLOBS:
+        matches = sorted(glob.glob(pattern))
+        if matches:
+            return matches[0], "bluetooth"
+    return None, None
 
 
 def make_log_line(elapsed_ms, letter, confidence_pct):
@@ -176,9 +207,12 @@ def run(model, is_tflite, car_port):
 if __name__ == "__main__":
     use_keras = "--keras" in sys.argv
 
+    car_requested = "--car" in sys.argv
     car_arg = None
-    if "--car" in sys.argv:
-        car_arg = sys.argv[sys.argv.index("--car") + 1]
+    if car_requested:
+        idx = sys.argv.index("--car") + 1
+        if idx < len(sys.argv) and not sys.argv[idx].startswith("--"):
+            car_arg = sys.argv[idx]
 
     if "--threshold" in sys.argv:
         CAR_CONFIDENCE_THRESHOLD = float(sys.argv[sys.argv.index("--threshold") + 1])
@@ -199,19 +233,30 @@ if __name__ == "__main__":
         is_tflite = True
 
     car_port = None
-    if car_arg is not None:
+    if car_requested:
         try:
             import serial
         except ImportError:
             print("ERROR: pyserial is not installed. Run:")
             print("  pip install pyserial")
             sys.exit(1)
-        print(f"Opening Arduino Mega on {car_arg} at {CAR_BAUD} baud...")
-        car_port = serial.Serial(car_arg, CAR_BAUD, timeout=1)
+
+        port_path, kind = find_car_port(car_arg)
+        if port_path is None:
+            print("ERROR: No car controller found.")
+            print(f"  Looked for a wired port matching {CAR_WIRED_PORT_GLOBS},")
+            print(f"  then a paired Bluetooth port matching {CAR_BT_PORT_GLOBS}.")
+            print("  Plug in the Mega over USB, or pair + bind the Bluetooth")
+            print("  module first (see the main README's 'ASL Car Control' section):")
+            print("    sudo rfcomm bind rfcomm0 <MAC_ADDRESS> 1")
+            sys.exit(1)
+
+        print(f"Opening Arduino Mega on {port_path} ({kind}) at {CAR_BAUD} baud...")
+        car_port = serial.Serial(port_path, CAR_BAUD, timeout=1)
         # Wait for the Mega to reset after the serial connection opens,
         # same as serial_bridge.py does.
         time.sleep(2)
-        print(f"  Connected. Forwarding W/B/C/A/O commands >= {CAR_CONFIDENCE_THRESHOLD}% confidence.")
+        print(f"  Connected. Forwarding W/Y/C/A/O commands >= {CAR_CONFIDENCE_THRESHOLD}% confidence.")
 
     try:
         run(model, is_tflite, car_port)

@@ -2,12 +2,15 @@
 // Receives ASL letter commands from the ESP32-S3 camera and drives the car.
 //
 // Communication options:
-//   Option 1 (Wire):  ESP32 Serial1 TX (GPIO2) → Mega RX2 (pin 17)
-//   Option 2 (USB):   Python bridge reads ESP32 USB log → sends letter to Mega USB
+//   Option 1 (Wire):      ESP32 Serial1 TX (GPIO2) → Mega RX2 (pin 17)
+//   Option 2 (USB):       Python bridge reads ESP32 USB log → sends letter to Mega USB
+//   Option 3 (Bluetooth): HC-05/HC-06 module wired to Mega Serial3 (RX3 pin 15,
+//                         TX3 pin 14) → run_model.py sends the letter wirelessly
+//                         when no USB cable is connected (see main README)
 //
 // Letter → Action mapping (must match FORWARD/BACKWARD/LEFT/RIGHT/STOP below,
 // and the isCarCommand letters in the ESP32's ASL_Detector.ino):
-//   W = Forward    B = Backward    C = Left    A = Right    O = Stop
+//   W = Forward    Y = Backward    C = Left    A = Right    O = Stop
 //
 // The car auto-stops after 3 seconds of no valid command (safety timeout).
 
@@ -59,7 +62,7 @@ int targetSteeringAngle = angleStraight;
 
 // --- const of car control ---
 const char FORWARD = 'W';
-const char BACKWARD = 'B';
+const char BACKWARD = 'Y';
 const char LEFT = 'C';
 const char RIGHT = 'A';
 const char STOP = 'O';
@@ -70,6 +73,11 @@ void setup() {
 
   // Serial2 (pins 16 TX2, 17 RX2) for receiving commands from ESP32 wire
   Serial2.begin(9600);
+
+  // Serial3 (pins 14 TX3, 15 RX3) — Bluetooth SPP module (HC-05/HC-06), for
+  // receiving commands wirelessly from run_model.py when no USB cable is
+  // connected to the computer (option 3)
+  Serial3.begin(9600);
 
   // Servo — start straight immediately
   steeringServo.attach(servoPin);
@@ -97,14 +105,14 @@ void setup() {
   stopMotors();
 
   Serial.println("ASL Car Controller Ready!");
-  Serial.println("Commands: W=Forward B=Back C=Left A=Right O=Stop");
-  Serial.println("Waiting for commands from ESP32...");
+  Serial.println("Commands: W=Forward Y=Back C=Left A=Right O=Stop");
+  Serial.println("Waiting for commands from ESP32 (wire), USB, or Bluetooth...");
 
   lastCommandTime = millis();
 }
 
 void loop() {
-  // --- 1. Read commands from both serial sources ---
+  // --- 1. Read commands from all three serial sources ---
   char cmd = 0;
 
   // Check Serial2 first (wire from ESP32)
@@ -116,9 +124,19 @@ void loop() {
     }
   }
 
-  // Also check USB Serial (from Python bridge — option 2)
+  // Also check USB Serial (from Python bridge or run_model.py — option 2)
   if (cmd == 0 && Serial.available()) {
     String line = Serial.readStringUntil('\n');
+    line.trim();
+    if (line.length() == 1) {
+      cmd = line.charAt(0);
+    }
+  }
+
+  // Also check Bluetooth Serial (from run_model.py over the paired
+  // HC-05/HC-06 module — option 3, used when no USB cable is connected)
+  if (cmd == 0 && Serial3.available()) {
+    String line = Serial3.readStringUntil('\n');
     line.trim();
     if (line.length() == 1) {
       cmd = line.charAt(0);
